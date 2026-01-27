@@ -1,192 +1,149 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <title>Titanic EDA – Production UI</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
-    <!-- CDN Libraries -->
-    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Titanic Dataset EDA</title>
+    <!-- Chart.js for visualizations -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
+    <!-- PapaParse for CSV parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
     <style>
-        :root {
-            --bg: #0f172a;
-            --card: #111827;
-            --accent: #3b82f6;
-            --text: #e5e7eb;
-            --muted: #9ca3af;
-            --success: #10b981;
-        }
-
-        * {
-            box-sizing: border-box;
-        }
-
         body {
-            margin: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: var(--bg);
-            color: var(--text);
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            color: #333;
         }
-
-        header {
-            padding: 20px 30px;
-            border-bottom: 1px solid #1f2937;
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        input[type="file"] {
+            margin: 10px 0;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 10px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .chart-container {
+            position: relative;
+            height: 400px;
+            width: 100%;
+            margin: 20px 0;
+        }
+        .flex-row {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        header h1 {
-            margin: 0;
-            font-size: 20px;
-            font-weight: 600;
-        }
-
-        .status {
-            font-size: 13px;
-            color: var(--muted);
-        }
-
-        .container {
-            padding: 25px 30px;
-            max-width: 1400px;
-            margin: auto;
-        }
-
-        .grid {
-            display: grid;
+            flex-wrap: wrap;
             gap: 20px;
         }
-
-        .grid-2 {
-            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+        .flex-chart {
+            flex: 1 1 400px;
         }
-
-        .grid-4 {
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        .note {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+            font-size: 0.9em;
         }
-
-        .card {
-            background: var(--card);
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-        }
-
-        .card h2 {
-            margin-top: 0;
-            font-size: 16px;
-            margin-bottom: 15px;
-        }
-
-        .kpi {
-            font-size: 28px;
-            font-weight: 600;
-        }
-
-        .kpi-label {
-            font-size: 13px;
-            color: var(--muted);
-        }
-
-        canvas {
-            max-width: 100%;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-        }
-
-        th, td {
-            padding: 6px;
-            border-bottom: 1px solid #1f2937;
-            text-align: center;
-        }
-
-        .footer-note {
-            margin-top: 30px;
-            font-size: 12px;
-            color: var(--muted);
-            text-align: center;
-        }
-
         @media (max-width: 768px) {
-            header {
+            .flex-row {
                 flex-direction: column;
-                align-items: flex-start;
-                gap: 10px;
             }
         }
     </style>
 </head>
 <body>
-
-<header>
-    <h1>Titanic Survival EDA Dashboard</h1>
-    <div class="status" id="status">Loading data...</div>
-</header>
-
-<div class="container">
-
-    <!-- KPI Section -->
-    <div class="grid grid-4" id="kpiSection">
-        <div class="card">
-            <div class="kpi" id="totalPassengers">-</div>
-            <div class="kpi-label">Total Passengers</div>
+    <h1>Titanic Dataset Exploratory Data Analysis</h1>
+    
+    <div class="note">
+        <strong>Deployment Note:</strong> To deploy this app on GitHub Pages, create a public GitHub repository, 
+        commit index.html and app.js, enable Pages from settings (select main branch and root folder), and test the provided URL.
+    </div>
+    
+    <!-- Data Load Section -->
+    <div class="section">
+        <h2>1. Data Load</h2>
+        <p>Upload the train.csv and test.csv files from the Kaggle Titanic dataset</p>
+        
+        <div>
+            <label for="trainFile">Train Data (train.csv):</label>
+            <input type="file" id="trainFile" accept=".csv">
         </div>
-        <div class="card">
-            <div class="kpi" id="survivalRate">-</div>
-            <div class="kpi-label">Overall Survival Rate</div>
+        
+        <div>
+            <label for="testFile">Test Data (test.csv):</label>
+            <input type="file" id="testFile" accept=".csv">
         </div>
-        <div class="card">
-            <div class="kpi" id="femaleRate">-</div>
-            <div class="kpi-label">Female Survival Rate</div>
-        </div>
-        <div class="card">
-            <div class="kpi" id="maleRate">-</div>
-            <div class="kpi-label">Male Survival Rate</div>
-        </div>
+        
+        <button id="loadDataBtn">Load and Merge Data</button>
+    </div>
+    
+    <!-- Data Overview Section -->
+    <div class="section">
+        <h2>2. Data Overview</h2>
+        <button id="showOverviewBtn">Show Data Overview</button>
+        <div id="overviewContent"></div>
+    </div>
+    
+    <!-- Missing Values Section -->
+    <div class="section">
+        <h2>3. Missing Values Analysis</h2>
+        <button id="showMissingBtn">Analyze Missing Values</button>
+        <div id="missingContent"></div>
+    </div>
+    
+    <!-- Statistical Summary Section -->
+    <div class="section">
+        <h2>4. Statistical Summary</h2>
+        <button id="showStatsBtn">Generate Statistical Summary</button>
+        <div id="statsContent"></div>
+    </div>
+    
+    <!-- Visualizations Section -->
+    <div class="section">
+        <h2>5. Data Visualizations</h2>
+        <button id="showVizBtn">Generate Visualizations</button>
+        <div id="vizContent"></div>
+    </div>
+    
+    <!-- Export Section -->
+    <div class="section">
+        <h2>6. Export Results</h2>
+        <button id="exportCsvBtn">Export Merged CSV</button>
+        <button id="exportJsonBtn">Export JSON Summary</button>
+        <div id="exportStatus"></div>
     </div>
 
-    <!-- Charts -->
-    <div class="grid grid-2" style="margin-top:25px;">
-        <div class="card">
-            <h2>Survival Rate by Sex</h2>
-            <canvas id="sexChart"></canvas>
-        </div>
-
-        <div class="card">
-            <h2>Survival Rate by Pclass</h2>
-            <canvas id="pclassChart"></canvas>
-        </div>
-
-        <div class="card">
-            <h2>Age Distribution (Train)</h2>
-            <canvas id="ageChart"></canvas>
-        </div>
-
-        <div class="card">
-            <h2>Fare Distribution (Train)</h2>
-            <canvas id="fareChart"></canvas>
-        </div>
-    </div>
-
-    <!-- Stats Table -->
-    <div class="card" style="margin-top:25px;">
-        <h2>Numeric Summary (Train Data)</h2>
-        <div id="statsTable"></div>
-    </div>
-
-    <div class="footer-note">
-        Deployment: Create public GitHub repo, commit index.html/app.js, enable Pages (main/root), test URL.
-    </div>
-
-</div>
-
-<script src="app.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>
