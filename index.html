@@ -3,227 +3,150 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Titanic EDA Dashboard</title>
+  <title>Titanic Survival Factor Analysis</title>
 
-  <!-- Google Font -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-
-  <!-- PapaParse -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-  <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <style>
-    :root {
-      --bg: #f6f8fb;
-      --card: #ffffff;
-      --primary: #2f80ed;
-      --text: #2c3e50;
-      --muted: #6b7c93;
-      --danger: #e74c3c;
-      --shadow: 0 4px 12px rgba(0,0,0,0.06);
-      --radius: 12px;
+    :root{
+      --bg:#f6f8fb;
+      --card:#ffffff;
+      --primary:#2f80ed;
+      --text:#2c3e50;
+      --muted:#6b7c93;
+      --shadow:0 4px 12px rgba(0,0,0,0.06);
+      --radius:12px;
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);}
 
-    body {
-      font-family: 'Inter', sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
+    header{
+      position:sticky;top:0;background:var(--card);
+      padding:1rem 2rem;box-shadow:var(--shadow);z-index:100;
     }
 
-    header {
-      position: sticky;
-      top: 0;
-      background: var(--card);
-      padding: 1rem 2rem;
-      box-shadow: var(--shadow);
-      z-index: 100;
+    header h1{font-size:1.4rem;font-weight:600;}
+
+    main{padding:2rem;max-width:1300px;margin:auto;}
+
+    section{margin-bottom:3rem;}
+
+    .card{
+      background:var(--card);
+      padding:1.5rem;
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      margin-bottom:1.5rem;
     }
 
-    header h1 {
-      font-size: 1.5rem;
-      font-weight: 600;
+    .section-title{
+      font-size:1.2rem;
+      font-weight:600;
+      margin-bottom:1rem;
     }
 
-    main {
-      padding: 2rem;
-      max-width: 1200px;
-      margin: auto;
+    .grid{
+      display:grid;
+      gap:1rem;
     }
 
-    section {
-      margin-bottom: 3rem;
+    .grid-2{
+      grid-template-columns:repeat(auto-fit,minmax(400px,1fr));
     }
 
-    .card {
-      background: var(--card);
-      padding: 1.5rem;
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      margin-bottom: 1.5rem;
+    button{
+      background:var(--primary);
+      color:white;
+      border:none;
+      padding:0.6rem 1rem;
+      border-radius:8px;
+      cursor:pointer;
     }
 
-    .section-title {
-      font-size: 1.2rem;
-      margin-bottom: 1rem;
-      font-weight: 600;
+    input[type="file"]{margin-bottom:1rem;}
+
+    table{
+      width:100%;
+      border-collapse:collapse;
+      font-size:0.85rem;
     }
 
-    .grid {
-      display: grid;
-      gap: 1rem;
+    th,td{
+      border-bottom:1px solid #eee;
+      padding:0.5rem;
+      text-align:left;
     }
 
-    .grid-4 {
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    footer{
+      background:var(--card);
+      padding:2rem;
+      font-size:0.85rem;
+      color:var(--muted);
+      box-shadow:var(--shadow);
     }
 
-    .grid-2 {
-      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-    }
-
-    input[type="file"] {
-      display: block;
-      margin-bottom: 1rem;
-    }
-
-    button {
-      background: var(--primary);
-      color: white;
-      border: none;
-      padding: 0.6rem 1rem;
-      border-radius: 8px;
-      cursor: pointer;
-      font-weight: 500;
-    }
-
-    button:hover {
-      opacity: 0.9;
-    }
-
-    .summary-card h3 {
-      font-size: 1.8rem;
-      margin-bottom: 0.5rem;
-    }
-
-    .summary-card p {
-      color: var(--muted);
-      font-size: 0.9rem;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.85rem;
-    }
-
-    th, td {
-      padding: 0.5rem;
-      border-bottom: 1px solid #eee;
-      text-align: left;
-    }
-
-    footer {
-      background: var(--card);
-      padding: 2rem;
-      font-size: 0.85rem;
-      color: var(--muted);
-      box-shadow: var(--shadow);
-    }
-
-    ul {
-      padding-left: 1.2rem;
-    }
-
-    .error {
-      color: var(--danger);
-      margin-top: 0.5rem;
-    }
-
-    @media(max-width: 600px){
-      main { padding: 1rem; }
+    @media(max-width:600px){
+      main{padding:1rem;}
     }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>Titanic Exploratory Data Analysis Dashboard</h1>
+  <h1>Titanic – What Factors Most Influenced Survival?</h1>
 </header>
 
 <main>
 
-  <!-- Upload Section -->
-  <section class="card">
-    <div class="section-title">Upload Data</div>
-    <input type="file" id="trainFile" accept=".csv" />
-    <input type="file" id="testFile" accept=".csv" />
-    <button id="loadBtn">Load & Clean Data</button>
-    <div id="uploadMessage"></div>
-  </section>
+<section class="card">
+  <div class="section-title">Upload Titanic Data</div>
+  <input type="file" id="trainFile" accept=".csv" />
+  <input type="file" id="testFile" accept=".csv" />
+  <button id="loadBtn">Load & Analyze</button>
+  <div id="uploadMessage"></div>
+</section>
 
-  <!-- Dataset Overview -->
-  <section id="overviewSection" style="display:none;">
-    <div class="section-title">Dataset Overview</div>
-    <div class="grid grid-4" id="overviewCards"></div>
-  </section>
+<section id="survivalChartsSection" style="display:none;">
+  <div class="section-title">Survival Rate by Key Factors (Train Data)</div>
+  <div class="grid grid-2">
+    <div class="card"><canvas id="sexChart"></canvas></div>
+    <div class="card"><canvas id="classChart"></canvas></div>
+    <div class="card"><canvas id="ageChart"></canvas></div>
+    <div class="card"><canvas id="sibspChart"></canvas></div>
+    <div class="card"><canvas id="parchChart"></canvas></div>
+    <div class="card"><canvas id="fareChart"></canvas></div>
+    <div class="card"><canvas id="cabinChart"></canvas></div>
+    <div class="card"><canvas id="embarkedChart"></canvas></div>
+  </div>
+</section>
 
-  <!-- Missing Values -->
-  <section id="missingSection" style="display:none;">
-    <div class="section-title">Missing Values</div>
-    <div class="card">
-      <canvas id="missingChart"></canvas>
-      <p id="missingExplanation" style="margin-top:1rem;"></p>
-    </div>
-  </section>
+<section id="statsSection" class="card" style="display:none;">
+  <div class="section-title">Statistical Summary (Train Data)</div>
+  <div id="statsTables"></div>
+</section>
 
-  <!-- Visual Insights -->
-  <section id="visualSection" style="display:none;">
-    <div class="section-title">Visual Insights</div>
-    <div class="grid grid-2">
-      <div class="card"><canvas id="genderSurvivalChart"></canvas></div>
-      <div class="card"><canvas id="classChart"></canvas></div>
-      <div class="card"><canvas id="ageChart"></canvas></div>
-      <div class="card"><canvas id="fareChart"></canvas></div>
-      <div class="card"><canvas id="embarkedChart"></canvas></div>
-    </div>
-  </section>
+<section id="heatmapSection" class="card" style="display:none;">
+  <div class="section-title">Correlation Heatmap (Numeric Variables)</div>
+  <canvas id="heatmapChart"></canvas>
+</section>
 
-  <!-- Insights -->
-  <section id="insightsSection" class="card" style="display:none;">
-    <div class="section-title">Automatic Insights</div>
-    <ul id="insightsList"></ul>
-  </section>
-
-  <!-- Export -->
-  <section id="exportSection" class="card" style="display:none;">
-    <div class="section-title">Export</div>
-    <button onclick="exportCSV()">Download Merged CSV</button>
-    <button onclick="exportJSON()">Download Summary JSON</button>
-    <button onclick="exportTXT()">Download Insights TXT</button>
-  </section>
-
-  <!-- Preview -->
-  <section id="previewSection" class="card" style="display:none;">
-    <div class="section-title">Data Preview (First 8 Rows)</div>
-    <div style="overflow-x:auto;">
-      <table id="previewTable"></table>
-    </div>
-  </section>
+<section id="graphSummarySection" class="card" style="display:none;">
+  <div class="section-title">Short Graph Summary</div>
+  <ul id="graphSummary"></ul>
+</section>
 
 </main>
 
 <footer>
-  <strong>Deploying to GitHub Pages:</strong><br><br>
-  1. Create a new public repository on GitHub.<br>
-  2. Upload <code>index.html</code> and <code>app.js</code> to the root of the repository.<br>
-  3. Go to <strong>Settings → Pages</strong>.<br>
-  4. Under “Source”, select <strong>Main branch</strong> and <strong>/root</strong> folder.<br>
-  5. Save. GitHub will generate a public URL for your dashboard.<br>
-  6. Visit the provided link to access your live EDA web app.
+  <strong>Deploy on GitHub Pages:</strong><br><br>
+  1. Create a public repository.<br>
+  2. Upload <code>index.html</code> and <code>app.js</code> to root.<br>
+  3. Go to Settings → Pages.<br>
+  4. Select Main branch and root folder.<br>
+  5. Save and access the generated URL.
 </footer>
 
 <script src="app.js"></script>
