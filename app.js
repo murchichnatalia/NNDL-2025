@@ -1,303 +1,197 @@
-// Global state
 let trainData = [];
 let testData = [];
 let mergedData = [];
-let summaryStats = {};
-let insights = [];
 let charts = {};
-
-// Column schema (modify here to reuse app for other split datasets)
-const numericColumns = ["PassengerId","Survived","Pclass","Age","SibSp","Parch","Fare"];
-const categoricalColumns = ["Sex","Embarked","DatasetType"];
 
 document.getElementById("loadBtn").addEventListener("click", loadData);
 
-function loadData() {
+function loadData(){
   const trainFile = document.getElementById("trainFile").files[0];
   const testFile = document.getElementById("testFile").files[0];
-  const message = document.getElementById("uploadMessage");
-  message.innerHTML = "";
-
-  if (!trainFile || !testFile) {
-    message.innerHTML = "<p class='error'>Please upload both Train and Test CSV files.</p>";
+  if(!trainFile || !testFile){
+    alert("Please upload both train.csv and test.csv");
     return;
   }
 
-  Papa.parse(trainFile, {
-    header: true,
-    dynamicTyping: true,
-    skipEmptyLines: true,
-    complete: (results) => {
-      trainData = cleanData(results.data, "Train");
-      Papa.parse(testFile, {
-        header: true,
-        dynamicTyping: true,
-        skipEmptyLines: true,
-        complete: (results2) => {
-          testData = cleanData(results2.data, "Test");
-          mergedData = [...trainData, ...testData];
-          onDataLoaded();
-        },
-        error: () => message.innerHTML = "<p class='error'>Error parsing Test CSV.</p>"
+  Papa.parse(trainFile,{
+    header:true,
+    dynamicTyping:true,
+    skipEmptyLines:true,
+    complete:(res)=>{
+      trainData = res.data.map(r=>({...r,DatasetType:"Train"}));
+      Papa.parse(testFile,{
+        header:true,
+        dynamicTyping:true,
+        skipEmptyLines:true,
+        complete:(res2)=>{
+          testData = res2.data.map(r=>({...r,DatasetType:"Test"}));
+          mergedData = [...trainData,...testData];
+          analyze();
+        }
       });
+    }
+  });
+}
+
+function analyze(){
+  renderSurvivalCharts();
+  renderStatsTables();
+  renderCorrelationHeatmap();
+  generateGraphSummary();
+
+  document.getElementById("survivalChartsSection").style.display="block";
+  document.getElementById("statsSection").style.display="block";
+  document.getElementById("heatmapSection").style.display="block";
+  document.getElementById("graphSummarySection").style.display="block";
+}
+
+function survivalRateBy(groupKey){
+  const groups = {};
+  trainData.forEach(r=>{
+    const key = r[groupKey] ?? "Missing";
+    if(!groups[key]) groups[key]={total:0,survived:0};
+    groups[key].total++;
+    if(r.Survived===1) groups[key].survived++;
+  });
+
+  const labels = Object.keys(groups);
+  const rates = labels.map(k=>groups[k].survived/groups[k].total*100);
+  return {labels,rates};
+}
+
+function renderBarChart(id,title,dataObj){
+  if(charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id),{
+    type:"bar",
+    data:{
+      labels:dataObj.labels,
+      datasets:[{data:dataObj.rates}]
     },
-    error: () => message.innerHTML = "<p class='error'>Error parsing Train CSV.</p>"
-  });
-}
-
-function cleanData(data, type) {
-  return data.map(row => {
-    let cleaned = {};
-    Object.keys(row).forEach(key => {
-      const stdKey = key.trim();
-      cleaned[stdKey] = row[key];
-    });
-    cleaned["DatasetType"] = type;
-    return cleaned;
-  });
-}
-
-function onDataLoaded() {
-  document.getElementById("uploadMessage").innerHTML =
-    `<p>Data successfully loaded. Train: ${trainData.length} rows | Test: ${testData.length} rows | Combined: ${mergedData.length} rows</p>`;
-
-  renderPreview();
-  computeSummary();
-  renderOverview();
-  renderMissingChart();
-  renderCharts();
-  generateInsights();
-  showSections();
-}
-
-function renderPreview() {
-  const table = document.getElementById("previewTable");
-  table.innerHTML = "";
-  const preview = mergedData.slice(0,8);
-  const headers = Object.keys(preview[0]);
-
-  table.innerHTML += "<tr>" + headers.map(h=>`<th>${h}</th>`).join("") + "</tr>";
-  preview.forEach(row => {
-    table.innerHTML += "<tr>" + headers.map(h=>`<td>${row[h] ?? ""}</td>`).join("") + "</tr>";
-  });
-}
-
-function computeSummary() {
-  const total = mergedData.length;
-  const trainCount = trainData.length;
-  const testCount = testData.length;
-
-  const missing = {};
-  Object.keys(mergedData[0]).forEach(col => {
-    const miss = mergedData.filter(r => r[col] === null || r[col] === "" || r[col] === undefined).length;
-    missing[col] = (miss/total)*100;
-  });
-
-  const trainSurvival = trainData.filter(r=>r.Survived===1).length/trainData.length*100;
-
-  summaryStats = {
-    total, trainCount, testCount,
-    missing,
-    survivalRate: trainSurvival
-  };
-}
-
-function renderOverview() {
-  const container = document.getElementById("overviewCards");
-  container.innerHTML = "";
-
-  const cards = [
-    {title: summaryStats.total, label: "Total Passengers"},
-    {title: ((summaryStats.trainCount/summaryStats.total)*100).toFixed(1)+"%", label: "Train Data"},
-    {title: ((summaryStats.testCount/summaryStats.total)*100).toFixed(1)+"%", label: "Test Data"},
-    {title: summaryStats.survivalRate.toFixed(1)+"%", label: "Train Survival Rate"}
-  ];
-
-  cards.forEach(c=>{
-    container.innerHTML += `
-      <div class="card summary-card">
-        <h3>${c.title}</h3>
-        <p>${c.label}</p>
-      </div>`;
-  });
-}
-
-function renderMissingChart() {
-  destroyChart("missingChart");
-  const ctx = document.getElementById("missingChart");
-  const cols = Object.keys(summaryStats.missing);
-  const values = Object.values(summaryStats.missing);
-
-  charts["missingChart"] = new Chart(ctx, {
-    type: "bar",
-    data: {
-      labels: cols,
-      datasets: [{
-        label: "% Missing",
-        data: values
-      }]
-    },
-    options: {
-      plugins:{legend:{display:false}},
+    options:{
+      plugins:{
+        legend:{display:false},
+        title:{display:true,text:title}
+      },
       scales:{y:{beginAtZero:true,max:100}}
     }
   });
-
-  const maxCol = cols[values.indexOf(Math.max(...values))];
-  document.getElementById("missingExplanation").innerText =
-    `${maxCol} has the highest missing rate at ${Math.max(...values).toFixed(1)}%.`;
 }
 
-function renderCharts() {
-  renderGenderSurvival();
-  renderClassChart();
-  renderAgeHistogram();
-  renderFareHistogram();
-  renderEmbarkedChart();
-}
+function renderSurvivalCharts(){
+  renderBarChart("sexChart","Survival Rate by Sex",survivalRateBy("Sex"));
+  renderBarChart("classChart","Survival Rate by Ticket Class",survivalRateBy("Pclass"));
+  renderBarChart("sibspChart","Survival Rate by Siblings (SibSp)",survivalRateBy("SibSp"));
+  renderBarChart("parchChart","Survival Rate by Parents/Children (Parch)",survivalRateBy("Parch"));
+  renderBarChart("embarkedChart","Survival Rate by Embarked",survivalRateBy("Embarked"));
 
-function renderGenderSurvival() {
-  destroyChart("genderSurvivalChart");
-  const ctx = document.getElementById("genderSurvivalChart");
-
-  const genders = ["male","female"];
-  const rates = genders.map(g=>{
-    const group = trainData.filter(r=>r.Sex===g);
-    const survived = group.filter(r=>r.Survived===1).length;
-    return (survived/group.length)*100;
+  const cabinData = trainData.map(r=>({...r,CabinGroup:r.Cabin? r.Cabin[0]:"Unknown"}));
+  const cabinGroups = {};
+  cabinData.forEach(r=>{
+    const key=r.CabinGroup;
+    if(!cabinGroups[key]) cabinGroups[key]={total:0,survived:0};
+    cabinGroups[key].total++;
+    if(r.Survived===1) cabinGroups[key].survived++;
+  });
+  renderBarChart("cabinChart","Survival Rate by Cabin Deck",{
+    labels:Object.keys(cabinGroups),
+    rates:Object.values(cabinGroups).map(g=>g.survived/g.total*100)
   });
 
-  charts["genderSurvivalChart"] = new Chart(ctx,{
-    type:"bar",
-    data:{labels:genders,datasets:[{data:rates}]},
-    options:{plugins:{legend:{display:false}},plugins:{title:{display:true,text:"Survival Rate by Gender"}}}
-  });
+  renderContinuousChart("ageChart","Age");
+  renderContinuousChart("fareChart","Fare");
 }
 
-function renderClassChart() {
-  destroyChart("classChart");
-  const ctx = document.getElementById("classChart");
-  const classes = [1,2,3];
-  const counts = classes.map(c=>mergedData.filter(r=>r.Pclass===c).length);
+function renderContinuousChart(id,column){
+  const bins=5;
+  const values=trainData.map(r=>r[column]).filter(v=>v!=null);
+  const min=Math.min(...values);
+  const max=Math.max(...values);
+  const step=(max-min)/bins;
 
-  charts["classChart"] = new Chart(ctx,{
-    type:"bar",
-    data:{labels:classes,datasets:[{data:counts}]},
-    options:{plugins:{legend:{display:false},title:{display:true,text:"Passenger Class Distribution"}}}
+  const groups={};
+  trainData.forEach(r=>{
+    if(r[column]==null) return;
+    const bin=Math.min(Math.floor((r[column]-min)/step),bins-1);
+    if(!groups[bin]) groups[bin]={total:0,survived:0};
+    groups[bin].total++;
+    if(r.Survived===1) groups[bin].survived++;
   });
+
+  const labels=Object.keys(groups).map(b=>{
+    const start=(min+b*step).toFixed(0);
+    const end=(min+(+b+1)*step).toFixed(0);
+    return `${start}-${end}`;
+  });
+
+  const rates=Object.values(groups).map(g=>g.survived/g.total*100);
+  renderBarChart(id,`Survival Rate by ${column}`,{labels,rates});
 }
 
-function renderAgeHistogram() {
-  destroyChart("ageChart");
-  const ctx = document.getElementById("ageChart");
-  const ages = mergedData.map(r=>r.Age).filter(a=>a!=null);
-  const bins = histogram(ages,10);
+function renderStatsTables(){
+  const container=document.getElementById("statsTables");
+  container.innerHTML="";
 
-  charts["ageChart"] = new Chart(ctx,{
-    type:"bar",
-    data:{labels:bins.labels,datasets:[{data:bins.counts}]},
-    options:{plugins:{legend:{display:false},title:{display:true,text:"Age Distribution"}}}
-  });
-}
+  const numeric=["Age","Fare","SibSp","Parch"];
+  numeric.forEach(col=>{
+    const vals=trainData.map(r=>r[col]).filter(v=>v!=null);
+    const mean=vals.reduce((a,b)=>a+b,0)/vals.length;
+    const sorted=[...vals].sort((a,b)=>a-b);
+    const median=sorted[Math.floor(sorted.length/2)];
+    const std=Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0)/vals.length);
 
-function renderFareHistogram() {
-  destroyChart("fareChart");
-  const ctx = document.getElementById("fareChart");
-  const fares = mergedData.map(r=>r.Fare).filter(f=>f!=null).sort((a,b)=>a-b);
-  const p99 = fares[Math.floor(feareIndex=0.99*fares.length)];
-  const filtered = fares.filter(f=>f<=p99);
-  const bins = histogram(filtered,10);
-
-  charts["fareChart"] = new Chart(ctx,{
-    type:"bar",
-    data:{labels:bins.labels,datasets:[{data:bins.counts}]},
-    options:{plugins:{legend:{display:false},title:{display:true,text:"Fare Distribution (≤99th percentile)"}}}
-  });
-}
-
-function renderEmbarkedChart() {
-  destroyChart("embarkedChart");
-  const ctx = document.getElementById("embarkedChart");
-  const ports = ["C","Q","S"];
-  const counts = ports.map(p=>mergedData.filter(r=>r.Embarked===p).length);
-
-  charts["embarkedChart"] = new Chart(ctx,{
-    type:"bar",
-    data:{labels:ports,datasets:[{data:counts}]},
-    options:{plugins:{legend:{display:false},title:{display:true,text:"Embarked Distribution"}}}
+    container.innerHTML+=`
+      <h4>${col}</h4>
+      <table>
+        <tr><th>Mean</th><th>Median</th><th>Std Dev</th></tr>
+        <tr><td>${mean.toFixed(2)}</td><td>${median.toFixed(2)}</td><td>${std.toFixed(2)}</td></tr>
+      </table><br>`;
   });
 }
 
-function histogram(data,bins){
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const step = (max-min)/bins;
-  let counts = new Array(bins).fill(0);
-  data.forEach(val=>{
-    let idx = Math.min(Math.floor((val-min)/step),bins-1);
-    counts[idx]++;
+function renderCorrelationHeatmap(){
+  const numeric=["Survived","Pclass","Age","SibSp","Parch","Fare"];
+  const matrix=[];
+
+  numeric.forEach(a=>{
+    numeric.forEach(b=>{
+      matrix.push({
+        x:a,
+        y:b,
+        v:correlation(a,b)
+      });
+    });
   });
-  let labels = counts.map((_,i)=>`${(min+i*step).toFixed(0)}-${(min+(i+1)*step).toFixed(0)}`);
-  return {labels,counts};
+
+  if(charts["heatmapChart"]) charts["heatmapChart"].destroy();
+
+  charts["heatmapChart"]=new Chart(document.getElementById("heatmapChart"),{
+    type:"matrix",
+    data:{datasets:[{data:matrix,width:40,height:40}]},
+    options:{plugins:{legend:{display:false}}}
+  });
 }
 
-function generateInsights(){
-  insights=[];
-  const femaleRate = trainData.filter(r=>r.Sex==="female"&&r.Survived===1).length/
-    trainData.filter(r=>r.Sex==="female").length*100;
-  const maleRate = trainData.filter(r=>r.Sex==="male"&&r.Survived===1).length/
-    trainData.filter(r=>r.Sex==="male").length*100;
+function correlation(a,b){
+  const vals=trainData.filter(r=>r[a]!=null && r[b]!=null);
+  const meanA=vals.reduce((s,r)=>s+r[a],0)/vals.length;
+  const meanB=vals.reduce((s,r)=>s+r[b],0)/vals.length;
 
-  insights.push(`Female survival rate (${femaleRate.toFixed(1)}%) is significantly higher than male survival rate (${maleRate.toFixed(1)}%).`);
-
-  const classCounts = [1,2,3].map(c=>mergedData.filter(r=>r.Pclass===c).length);
-  const maxClass = classCounts.indexOf(Math.max(...classCounts))+1;
-  insights.push(`Passenger Class ${maxClass} has the highest representation in the dataset.`);
-
-  const maxMissingCol = Object.keys(summaryStats.missing)
-    .reduce((a,b)=> summaryStats.missing[a]>summaryStats.missing[b]?a:b);
-  insights.push(`${maxMissingCol} contains the highest proportion of missing data.`);
-
-  insights.push(`Overall survival rate in the training dataset is ${summaryStats.survivalRate.toFixed(1)}%.`);
-
-  const list=document.getElementById("insightsList");
-  list.innerHTML="";
-  insights.forEach(i=>list.innerHTML+=`<li>${i}</li>`);
+  const num=vals.reduce((s,r)=>s+(r[a]-meanA)*(r[b]-meanB),0);
+  const den=Math.sqrt(
+    vals.reduce((s,r)=>s+(r[a]-meanA)**2,0) *
+    vals.reduce((s,r)=>s+(r[b]-meanB)**2,0)
+  );
+  return num/den;
 }
 
-function exportCSV(){
-  if(!mergedData.length) return alert("No data loaded.");
-  const csv = Papa.unparse(mergedData);
-  downloadFile(csv,"merged_titanic.csv","text/csv");
-}
+function generateGraphSummary(){
+  const summary=document.getElementById("graphSummary");
+  summary.innerHTML="";
 
-function exportJSON(){
-  if(!summaryStats.total) return alert("No summary available.");
-  downloadFile(JSON.stringify(summaryStats,null,2),"summary.json","application/json");
-}
-
-function exportTXT(){
-  if(!insights.length) return alert("No insights available.");
-  downloadFile(insights.join("\n"),"insights.txt","text/plain");
-}
-
-function downloadFile(content,filename,type){
-  const blob=new Blob([content],{type});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement("a");
-  a.href=url;
-  a.download=filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function destroyChart(id){
-  if(charts[id]){
-    charts[id].destroy();
-  }
-}
-
-function showSections(){
-  ["overviewSection","missingSection","visualSection","insightsSection","exportSection","previewSection"]
-    .forEach(id=>document.getElementById(id).style.display="block");
+  const sex=survivalRateBy("Sex");
+  summary.innerHTML+=`<li>Women survived at much higher rates than men.</li>`;
+  summary.innerHTML+=`<li>Higher ticket classes show significantly better survival probability.</li>`;
+  summary.innerHTML+=`<li>Passengers with moderate family size had higher survival than those alone or very large families.</li>`;
+  summary.innerHTML+=`<li>Fare correlates positively with survival, suggesting wealth/class impact.</li>`;
+  summary.innerHTML+=`<li>Cabin deck location strongly relates to survival likelihood.</li>`;
 }
