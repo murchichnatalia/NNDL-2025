@@ -28,8 +28,8 @@ const exportJSONBtn = document.getElementById('exportJSONBtn');
 
 // Data URLs - UPDATE THESE TO YOUR GITHUB RAW LINKS
 const DATA_URLS = {
-    train: 'https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/train.csv',
-    test: 'https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/test.csv'
+    train: 'https://raw.githubusercontent.com/murchichnatalia/NNDL-2025/main/Week%201/train.csv',
+    test: 'https://raw.githubusercontent.com/murchichnatalia/NNDL-2025/main/Week%201/test.csv'
 };
 
 // Initialize the application
