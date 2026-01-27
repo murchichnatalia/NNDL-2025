@@ -297,28 +297,40 @@
             </div>
         </header>
         
-        <!-- Data Load Section -->
-        <section class="section">
-            <h2>📁 1. Data Load</h2>
-            <div class="input-group">
-                <div class="file-input-container">
-                    <label for="trainFile">Upload train.csv (with Survived column)</label>
-                    <input type="file" id="trainFile" accept=".csv">
-                </div>
-                <div class="file-input-container">
-                    <label for="testFile">Upload test.csv (without Survived column)</label>
-                    <input type="file" id="testFile" accept=".csv">
-                </div>
-            </div>
-            <div class="button-group">
-                <button class="btn-primary" id="loadDataBtn">
-                    📊 Load & Merge Datasets
-                </button>
-                <button class="btn-secondary" id="runEDABtn">
-                    🔍 Run Full EDA Analysis
-                </button>
-            </div>
-        </section>
+<!-- Data Load Section -->
+<section class="section">
+    <h2>📁 1. Data Load</h2>
+    <div class="input-group">
+        <div class="file-input-container">
+            <label for="trainFile">Upload train.csv (with Survived column)</label>
+            <input type="file" id="trainFile" accept=".csv">
+        </div>
+        <div class="file-input-container">
+            <label for="testFile">Upload test.csv (without Survived column)</label>
+            <input type="file" id="testFile" accept=".csv">
+        </div>
+    </div>
+    
+    <!-- Существующие кнопки -->
+    <div class="button-group">
+        <button class="btn-primary" id="loadDataBtn">
+            📊 Load & Merge Datasets
+        </button>
+        <button class="btn-secondary" id="runEDABtn">
+            🔍 Run Full EDA Analysis
+        </button>
+    </div>
+    
+    <!-- НОВЫЕ КНОПКИ - ВСТАВЬТЕ ЗДЕСЬ -->
+    <div class="button-group">
+        <button class="btn-primary" id="loadFromGitHubBtn">
+            🌐 Load from GitHub (Auto)
+        </button>
+        <button class="btn-secondary" id="loadSampleBtn">
+            🧪 Load Sample Data
+        </button>
+    </div>
+</section>
         
         <!-- Data Overview Section -->
         <section class="section">
