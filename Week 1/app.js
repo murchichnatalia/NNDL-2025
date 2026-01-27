@@ -1,360 +1,228 @@
+// ===============================
+// Titanic Production EDA Dashboard
+// Auto-load CSV from /Week 1/
+// ===============================
+
+// IMPORTANT:
+// Files must exist at:
+// Week 1/train.csv
+// Week 1/test.csv
+// If deployed on GitHub Pages, path is relative to root.
+
+const TRAIN_URL = "Week 1/train.csv";
+const TEST_URL = "Week 1/test.csv";
+
 let mergedData = [];
-let summaryResult = {};
-let charts = {}; // store chart instances to safely destroy before re-creating
-
-// ===== Dataset Schema =====
-// To reuse for another dataset:
-// 1. Change these feature lists
-// 2. Keep merge logic with `source` column
-
-const targetColumn = "Survived";
-const numericFeatures = ["Age", "Fare", "SibSp", "Parch"];
-const categoricalFeatures = ["Sex", "Pclass", "Embarked"];
-const identifierColumn = "PassengerId";
+let charts = {};
 
 // ================= Utilities =================
 
 function mean(arr) {
-    if (!arr.length) return 0;
-    return arr.reduce((a, b) => a + b, 0) / arr.length;
+    return arr.reduce((a,b)=>a+b,0)/arr.length;
 }
 
-function median(arr) {
-    if (!arr.length) return 0;
-    const sorted = [...arr].sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    return sorted.length % 2
-        ? sorted[mid]
-        : (sorted[mid - 1] + sorted[mid]) / 2;
+function median(arr){
+    const s=[...arr].sort((a,b)=>a-b);
+    const m=Math.floor(s.length/2);
+    return s.length%2?s[m]:(s[m-1]+s[m])/2;
 }
 
-function std(arr) {
-    if (!arr.length) return 0;
-    const m = mean(arr);
-    return Math.sqrt(mean(arr.map(x => (x - m) ** 2)));
+function std(arr){
+    const m=mean(arr);
+    return Math.sqrt(mean(arr.map(x=>(x-m)**2)));
 }
 
-function destroyChart(id) {
-    if (charts[id]) {
-        charts[id].destroy();
-    }
+function destroyChart(id){
+    if(charts[id]) charts[id].destroy();
 }
 
-// ================= Load + Merge =================
+// ================= Auto Load =================
 
-document.getElementById("loadBtn").addEventListener("click", () => {
-
-    const trainFile = document.getElementById("trainFile").files[0];
-    const testFile = document.getElementById("testFile").files[0];
-
-    if (!trainFile || !testFile) {
-        alert("Upload BOTH train.csv and test.csv from Kaggle.");
-        return;
-    }
-
-    parseFile(trainFile, "train")
-        .then(trainData => parseFile(testFile, "test")
-            .then(testData => {
-
-                mergedData = [...trainData, ...testData];
-
-                if (!mergedData.length) {
-                    alert("Parsed data is empty.");
-                    return;
-                }
-
-                renderOverview();
-                analyzeMissing();
-                runEDA();
-            })
-        )
-        .catch(err => {
-            console.error(err);
-            alert("Error loading CSV files.");
-        });
+window.addEventListener("DOMContentLoaded", () => {
+    loadData();
 });
 
-function parseFile(file, sourceName) {
-    return new Promise((resolve, reject) => {
-        Papa.parse(file, {
-            header: true,
-            dynamicTyping: true,
-            skipEmptyLines: true,
-            complete: function (results) {
+async function loadData(){
 
-                if (!results.data || !results.data.length) {
+    try {
+        const train = await fetchCsv(TRAIN_URL, "train");
+        const test = await fetchCsv(TEST_URL, "test");
+
+        mergedData = [...train, ...test];
+
+        document.getElementById("status").innerText =
+            "Data loaded successfully";
+
+        runEDA();
+
+    } catch(err){
+        console.error(err);
+        document.getElementById("status").innerText =
+            "Error loading CSV files. Check paths.";
+    }
+}
+
+function fetchCsv(url, sourceName){
+    return new Promise((resolve,reject)=>{
+        Papa.parse(url,{
+            download:true,
+            header:true,
+            dynamicTyping:true,
+            skipEmptyLines:true,
+            complete:results=>{
+                if(!results.data.length){
                     reject("Empty file");
                     return;
                 }
-
-                const cleaned = results.data
-                    .filter(row => Object.keys(row).length > 1)
-                    .map(row => ({ ...row, source: sourceName }));
-
+                const cleaned = results.data.map(r=>({...r, source:sourceName}));
                 resolve(cleaned);
             },
-            error: function (err) {
-                reject(err);
-            }
+            error:err=>reject(err)
         });
     });
-}
-
-// ================= Overview =================
-
-function renderOverview() {
-
-    const overviewDiv = document.getElementById("overview");
-    const previewDiv = document.getElementById("preview");
-
-    overviewDiv.innerHTML =
-        `<strong>Rows:</strong> ${mergedData.length} |
-         <strong>Columns:</strong> ${Object.keys(mergedData[0]).length}`;
-
-    const previewRows = mergedData.slice(0, 5);
-
-    let table = "<table><tr>";
-    Object.keys(previewRows[0]).forEach(col => {
-        table += `<th>${col}</th>`;
-    });
-    table += "</tr>";
-
-    previewRows.forEach(row => {
-        table += "<tr>";
-        Object.keys(previewRows[0]).forEach(col => {
-            table += `<td>${row[col]}</td>`;
-        });
-        table += "</tr>";
-    });
-
-    table += "</table>";
-
-    previewDiv.innerHTML = table;
-}
-
-// ================= Missing Values =================
-
-function analyzeMissing() {
-
-    const columns = Object.keys(mergedData[0]);
-
-    const missingPercent = columns.map(col => {
-        const missing = mergedData.filter(r =>
-            r[col] === null ||
-            r[col] === undefined ||
-            r[col] === ""
-        ).length;
-
-        return (missing / mergedData.length * 100).toFixed(2);
-    });
-
-    destroyChart("missingChart");
-
-    charts["missingChart"] = new Chart(
-        document.getElementById("missingChart"),
-        {
-            type: "bar",
-            data: {
-                labels: columns,
-                datasets: [{
-                    label: "% Missing",
-                    data: missingPercent
-                }]
-            }
-        }
-    );
 }
 
 // ================= EDA =================
 
-function runEDA() {
+function runEDA(){
 
-    const trainOnly = mergedData.filter(d => d.source === "train");
+    const train = mergedData.filter(d=>d.source==="train");
 
-    if (!trainOnly.length) {
-        alert("Train data missing Survived column.");
-        return;
-    }
+    // KPI
+    const total = train.length;
+    const survived = train.filter(d=>d.Survived===1).length;
+    const female = train.filter(d=>d.Sex==="female");
+    const male = train.filter(d=>d.Sex==="male");
 
-    renderNumericStats(trainOnly);
+    document.getElementById("totalPassengers").innerText = total;
+    document.getElementById("survivalRate").innerText =
+        ((survived/total)*100).toFixed(1)+"%";
 
-    visualizeSurvivalByCategory(trainOnly, "Sex", "sexChart");
-    visualizeSurvivalByCategory(trainOnly, "Pclass", "pclassChart");
-    visualizeHistogram(trainOnly, "Age", "ageChart");
-    visualizeHistogram(trainOnly, "Fare", "fareChart");
+    document.getElementById("femaleRate").innerText =
+        ((female.filter(d=>d.Survived===1).length/female.length)*100).toFixed(1)+"%";
+
+    document.getElementById("maleRate").innerText =
+        ((male.filter(d=>d.Survived===1).length/male.length)*100).toFixed(1)+"%";
+
+    survivalByCategory(train,"Sex","sexChart");
+    survivalByCategory(train,"Pclass","pclassChart");
+    histogram(train,"Age","ageChart");
+    histogram(train,"Fare","fareChart");
+
+    renderStats(train);
 
     /*
-    ===== EDA CONCLUSION =====
-    Based on Titanic dataset analysis:
+    =============================
+    FINAL EDA CONCLUSION
+    =============================
 
-    1. SEX is the strongest survival factor.
-       Females survival rate ~70–75%
-       Males survival rate ~15–20%
+    1. SEX is the dominant factor.
+       Female survival ~70–75%
+       Male survival ~15–20%
 
-    2. Pclass is second strongest factor.
-       1st class much higher survival.
+    2. Pclass second strongest factor.
+       1st class survival highest.
 
-    3. Age and Fare moderate influence.
+    3. Age & Fare moderate effects.
 
-    ==> MAIN FACTOR OF DEATH: BEING MALE.
+    ==> Main factor of death on Titanic: BEING MALE.
     */
+}
+
+// ================= Charts =================
+
+function survivalByCategory(data,feature,canvasId){
+
+    destroyChart(canvasId);
+
+    const groups={};
+
+    data.forEach(r=>{
+        if(!groups[r[feature]]) groups[r[feature]]={survived:0,total:0};
+        groups[r[feature]].total++;
+        if(r.Survived===1) groups[r[feature]].survived++;
+    });
+
+    const labels=Object.keys(groups);
+    const rates=labels.map(l=>
+        (groups[l].survived/groups[l].total*100).toFixed(1)
+    );
+
+    charts[canvasId]=new Chart(
+        document.getElementById(canvasId),
+        {
+            type:"bar",
+            data:{
+                labels:labels,
+                datasets:[{
+                    label:"Survival Rate (%)",
+                    data:rates
+                }]
+            }
+        }
+    );
+}
+
+function histogram(data,feature,canvasId){
+
+    destroyChart(canvasId);
+
+    const values=data
+        .map(d=>d[feature])
+        .filter(v=>typeof v==="number"&&!isNaN(v));
+
+    const bins=10;
+    const min=Math.min(...values);
+    const max=Math.max(...values);
+    const step=(max-min)/bins;
+
+    const counts=new Array(bins).fill(0);
+
+    values.forEach(v=>{
+        const i=Math.min(Math.floor((v-min)/step),bins-1);
+        counts[i]++;
+    });
+
+    const labels=counts.map((_,i)=>
+        (min+i*step).toFixed(1)
+    );
+
+    charts[canvasId]=new Chart(
+        document.getElementById(canvasId),
+        {
+            type:"bar",
+            data:{
+                labels:labels,
+                datasets:[{
+                    label:feature+" Distribution",
+                    data:counts
+                }]
+            }
+        }
+    );
 }
 
 // ================= Stats =================
 
-function renderNumericStats(data) {
+function renderStats(data){
 
-    let html = "<h3>Numeric Summary (Train Only)</h3>";
-    html += "<table><tr><th>Feature</th><th>Mean</th><th>Median</th><th>Std</th></tr>";
+    const numeric=["Age","Fare","SibSp","Parch"];
+    let html="<table><tr><th>Feature</th><th>Mean</th><th>Median</th><th>Std</th></tr>";
 
-    summaryResult.numeric = {};
+    numeric.forEach(f=>{
+        const vals=data
+            .map(d=>d[f])
+            .filter(v=>typeof v==="number"&&!isNaN(v));
 
-    numericFeatures.forEach(feature => {
-
-        const values = data
-            .map(d => d[feature])
-            .filter(v => typeof v === "number" && !isNaN(v));
-
-        if (!values.length) return;
-
-        const m = mean(values);
-        const med = median(values);
-        const s = std(values);
-
-        summaryResult.numeric[feature] = { mean: m, median: med, std: s };
-
-        html += `<tr>
-            <td>${feature}</td>
-            <td>${m.toFixed(2)}</td>
-            <td>${med.toFixed(2)}</td>
-            <td>${s.toFixed(2)}</td>
+        html+=`<tr>
+            <td>${f}</td>
+            <td>${mean(vals).toFixed(2)}</td>
+            <td>${median(vals).toFixed(2)}</td>
+            <td>${std(vals).toFixed(2)}</td>
         </tr>`;
     });
 
-    html += "</table>";
+    html+="</table>";
 
-    document.getElementById("stats").innerHTML = html;
-}
-
-// ================= Category Survival =================
-
-function visualizeSurvivalByCategory(data, feature, canvasId) {
-
-    destroyChart(canvasId);
-
-    const groups = {};
-
-    data.forEach(row => {
-
-        const key = row[feature];
-        if (!groups[key]) {
-            groups[key] = { survived: 0, total: 0 };
-        }
-
-        groups[key].total++;
-        if (row[targetColumn] === 1) {
-            groups[key].survived++;
-        }
-    });
-
-    const labels = Object.keys(groups);
-    const survivalRates = labels.map(l =>
-        (groups[l].survived / groups[l].total * 100).toFixed(2)
-    );
-
-    charts[canvasId] = new Chart(
-        document.getElementById(canvasId),
-        {
-            type: "bar",
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: `Survival Rate (%) by ${feature}`,
-                    data: survivalRates
-                }]
-            }
-        }
-    );
-}
-
-// ================= Histogram =================
-
-function visualizeHistogram(data, feature, canvasId) {
-
-    destroyChart(canvasId);
-
-    const values = data
-        .map(d => d[feature])
-        .filter(v => typeof v === "number" && !isNaN(v));
-
-    if (!values.length) return;
-
-    const bins = 10;
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-
-    if (max === min) return;
-
-    const step = (max - min) / bins;
-    const counts = new Array(bins).fill(0);
-
-    values.forEach(v => {
-        const index = Math.min(
-            Math.floor((v - min) / step),
-            bins - 1
-        );
-        counts[index]++;
-    });
-
-    const labels = counts.map((_, i) =>
-        (min + i * step).toFixed(1)
-    );
-
-    charts[canvasId] = new Chart(
-        document.getElementById(canvasId),
-        {
-            type: "bar",
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: `${feature} Distribution`,
-                    data: counts
-                }]
-            }
-        }
-    );
-}
-
-// ================= Export =================
-
-document.getElementById("exportCsvBtn").addEventListener("click", () => {
-
-    if (!mergedData.length) {
-        alert("Load data first.");
-        return;
-    }
-
-    const csv = Papa.unparse(mergedData);
-    downloadFile(csv, "merged_titanic.csv", "text/csv");
-});
-
-document.getElementById("exportJsonBtn").addEventListener("click", () => {
-
-    if (!summaryResult.numeric) {
-        alert("Run EDA first.");
-        return;
-    }
-
-    const json = JSON.stringify(summaryResult, null, 2);
-    downloadFile(json, "eda_summary.json", "application/json");
-});
-
-function downloadFile(content, filename, type) {
-
-    const blob = new Blob([content], { type });
-    const link = document.createElement("a");
-
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
-    link.click();
+    document.getElementById("statsTable").innerHTML=html;
 }
