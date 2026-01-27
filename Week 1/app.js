@@ -1,855 +1,489 @@
-// app.js
 /**
- * Titanic Dataset EDA Explorer
- * A client-side interactive exploratory data analysis tool for the Kaggle Titanic dataset
- * Reusable for other datasets by modifying the schema below
+ * Titanic EDA Dashboard - Interactive Data Analysis
+ * 
+ * Data Schema:
+ * Target: Survived (0 = Died, 1 = Survived) - only in train.csv
+ * Features: Pclass, Sex, Age, SibSp, Parch, Fare, Embarked
+ * Identifier: PassengerId (excluded from analysis)
+ * 
+ * REUSE NOTE: To adapt for other datasets, update:
+ * 1. The schema definition above
+ * 2. Visualization configurations
+ * 3. Feature names in calculations
  */
 
-// ============================================
-// DATA SCHEMA CONFIGURATION
-// ============================================
-// TARGET: Survived (0/1, train only)
-// FEATURES: Pclass, Sex, Age, SibSp, Parch, Fare, Embarked
-// IDENTIFIER: PassengerId (excluded from analysis)
-// REUSE NOTE: Swap this schema for other datasets by updating:
-//   - targetColumn, featureColumns, idColumn
-//   - numericFeatures, categoricalFeatures
-//   - visualization configurations
-const DATA_SCHEMA = {
-    targetColumn: 'Survived',  // Binary target variable (train only)
-    featureColumns: ['Pclass', 'Sex', 'Age', 'SibSp', 'Parch', 'Fare', 'Embarked'],
-    idColumn: 'PassengerId',   // Identifier column (excluded from analysis)
-    numericFeatures: ['Age', 'SibSp', 'Parch', 'Fare'],
-    categoricalFeatures: ['Pclass', 'Sex', 'Embarked']
-};
-
-// Global variables
-let mergedData = null;
+// Global variables to store data
 let trainData = null;
 let testData = null;
-let charts = {}; // Store Chart.js instances for later updates
+let mergedData = null;
+let charts = {}; // Store chart instances for updates
 
-// ============================================
-// DOM ELEMENT REFERENCES
-// ============================================
-const dom = {
-    // File inputs
-    trainFileInput: document.getElementById('train-file'),
-    testFileInput: document.getElementById('test-file'),
-    trainStatus: document.getElementById('train-status'),
-    testStatus: document.getElementById('test-status'),
-    
-    // Buttons
-    loadDataBtn: document.getElementById('load-data-btn'),
-    useSampleBtn: document.getElementById('use-sample-btn'),
-    togglePreviewBtn: document.getElementById('toggle-preview-btn'),
-    runStatsBtn: document.getElementById('run-stats-btn'),
-    generateVisualsBtn: document.getElementById('generate-visuals-btn'),
-    exportCsvBtn: document.getElementById('export-csv-btn'),
-    exportJsonBtn: document.getElementById('export-json-btn'),
-    
-    // Content sections
-    overviewContent: document.getElementById('overview-content'),
-    overviewPlaceholder: document.getElementById('overview-placeholder'),
-    missingValuesContent: document.getElementById('missing-values-content'),
-    missingValuesPlaceholder: document.getElementById('missing-values-placeholder'),
-    statsSummaryContent: document.getElementById('stats-summary-content'),
-    statsSummaryPlaceholder: document.getElementById('stats-summary-placeholder'),
-    visualizationsContent: document.getElementById('visualizations-content'),
-    visualizationsPlaceholder: document.getElementById('visualizations-placeholder'),
-    
-    // Message displays
-    dataLoadMessage: document.getElementById('data-load-message'),
-    exportMessage: document.getElementById('export-message'),
-    
-    // Statistics displays
-    totalPassengers: document.getElementById('total-passengers'),
-    trainSamples: document.getElementById('train-samples'),
-    testSamples: document.getElementById('test-samples'),
-    featureCount: document.getElementById('feature-count'),
-    
-    // Data preview
-    dataPreviewContainer: document.getElementById('data-preview-container'),
-    dataPreview: document.getElementById('data-preview'),
-    
-    // Charts
-    missingValuesChart: document.getElementById('missing-values-chart'),
-    sexChart: document.getElementById('sex-chart'),
-    pclassChart: document.getElementById('pclass-chart'),
-    embarkedChart: document.getElementById('embarked-chart'),
-    ageChart: document.getElementById('age-chart'),
-    fareChart: document.getElementById('fare-chart'),
-    correlationChart: document.getElementById('correlation-chart'),
-    
-    // Stats containers
-    missingValuesTableContainer: document.getElementById('missing-values-table-container'),
-    numericStatsContainer: document.getElementById('numeric-stats-container'),
-    categoricalStatsContainer: document.getElementById('categorical-stats-container'),
-    survivalStatsContainer: document.getElementById('survival-stats-container')
-};
+// DOM elements
+const trainFileInput = document.getElementById('trainFile');
+const testFileInput = document.getElementById('testFile');
+const loadDataBtn = document.getElementById('loadDataBtn');
+const runEDABtn = document.getElementById('runEDABtn');
+const exportCSVBtn = document.getElementById('exportCSVBtn');
+const exportJSONBtn = document.getElementById('exportJSONBtn');
 
-// ============================================
-// EVENT LISTENERS SETUP
-// ============================================
-function setupEventListeners() {
-    // File input change events
-    dom.trainFileInput.addEventListener('change', (e) => {
-        const files = e.target.files;
-        if (files && files.length > 0) {
-            const file = files[0];
-            dom.trainStatus.textContent = `✅ Loaded: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
-            dom.trainStatus.className = 'file-status loaded';
-        } else {
-            dom.trainStatus.textContent = 'No file selected';
-            dom.trainStatus.className = 'file-status';
-        }
-    });
+// Initialize the application
+function init() {
+    // Event listeners
+    loadDataBtn.addEventListener('click', loadAndMergeData);
+    runEDABtn.addEventListener('click', runFullEDA);
+    exportCSVBtn.addEventListener('click', exportMergedCSV);
+    exportJSONBtn.addEventListener('click', exportSummaryJSON);
     
-    dom.testFileInput.addEventListener('change', (e) => {
-        const files = e.target.files;
-        if (files && files.length > 0) {
-            const file = files[0];
-            dom.testStatus.textContent = `✅ Loaded: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
-            dom.testStatus.className = 'file-status loaded';
-        } else {
-            dom.testStatus.textContent = 'No file selected';
-            dom.testStatus.className = 'file-status';
-        }
-    });
+    // Disable EDA button initially
+    runEDABtn.disabled = true;
+    runEDABtn.style.opacity = '0.6';
     
-    // Button click events
-    dom.loadDataBtn.addEventListener('click', loadAndMergeData);
-    dom.useSampleBtn.addEventListener('click', loadSampleData);
-    dom.togglePreviewBtn.addEventListener('click', toggleDataPreview);
-    dom.runStatsBtn.addEventListener('click', calculateStatistics);
-    dom.generateVisualsBtn.addEventListener('click', generateVisualizations);
-    dom.exportCsvBtn.addEventListener('click', exportMergedCSV);
-    dom.exportJsonBtn.addEventListener('click', exportJSONSummary);
-    
-    // Initialize UI state
-    updateUIState('initial');
+    console.log('Titanic EDA Dashboard initialized');
 }
 
-// ============================================
-// DATA LOADING AND MERGING
-// ============================================
 /**
- * Load and merge train.csv and test.csv files
+ * Load and merge train and test datasets
  */
 async function loadAndMergeData() {
-    // Get files properly
-    const trainFile = dom.trainFileInput.files ? dom.trainFileInput.files[0] : null;
-    const testFile = dom.testFileInput.files ? dom.testFileInput.files[0] : null;
+    const trainFile = trainFileInput.files[0];
+    const testFile = testFileInput.files[0];
     
-    // Validate files are selected
     if (!trainFile || !testFile) {
-        showMessage(dom.dataLoadMessage, 'Please select both train.csv and test.csv files.', 'warning');
+        alert('Please upload both train.csv and test.csv files');
         return;
     }
     
-    // Validate file names (optional but helpful)
-    if (!trainFile.name.toLowerCase().includes('train') || !testFile.name.toLowerCase().includes('test')) {
-        showMessage(dom.dataLoadMessage, 'Warning: Make sure train.csv is the training file and test.csv is the test file.', 'warning');
-    }
-    
-    showMessage(dom.dataLoadMessage, 'Loading and parsing CSV files...', 'info');
-    
     try {
-        // Parse train.csv
-        const trainPromise = new Promise((resolve, reject) => {
-            Papa.parse(trainFile, {
-                header: true,
-                dynamicTyping: true,
-                skipEmptyLines: true,
-                quotes: true, // Handle commas within quotes
-                complete: (results) => {
-                    if (results.errors && results.errors.length > 0) {
-                        console.warn('CSV parse warnings:', results.errors);
-                    }
-                    
-                    if (!results.data || results.data.length === 0) {
-                        reject(new Error('Train CSV file is empty or could not be parsed'));
-                        return;
-                    }
-                    
-                    // Add source column
-                    const dataWithSource = results.data.map(row => ({
-                        ...row,
-                        source: 'train'
-                    }));
-                    resolve(dataWithSource);
-                },
-                error: (error) => {
-                    reject(new Error(`Failed to parse train.csv: ${error.message}`));
-                }
-            });
-        });
+        // Parse train data
+        const trainText = await readFile(trainFile);
+        trainData = parseCSV(trainText, 'train');
         
-        // Parse test.csv
-        const testPromise = new Promise((resolve, reject) => {
-            Papa.parse(testFile, {
-                header: true,
-                dynamicTyping: true,
-                skipEmptyLines: true,
-                quotes: true,
-                complete: (results) => {
-                    if (results.errors && results.errors.length > 0) {
-                        console.warn('CSV parse warnings:', results.errors);
-                    }
-                    
-                    if (!results.data || results.data.length === 0) {
-                        reject(new Error('Test CSV file is empty or could not be parsed'));
-                        return;
-                    }
-                    
-                    // Add source column and missing Survived column
-                    const dataWithSource = results.data.map(row => ({
-                        ...row,
-                        source: 'test',
-                        Survived: null // Add Survived column with null for test data
-                    }));
-                    resolve(dataWithSource);
-                },
-                error: (error) => {
-                    reject(new Error(`Failed to parse test.csv: ${error.message}`));
-                }
-            });
-        });
-        
-        // Wait for both files to parse
-        [trainData, testData] = await Promise.all([trainPromise, testPromise]);
+        // Parse test data
+        const testText = await readFile(testFile);
+        testData = parseCSV(testText, 'test');
         
         // Merge datasets
-        mergedData = [...trainData, ...testData];
-        
-        // Validate data structure
-        if (mergedData.length === 0) {
-            throw new Error('No data loaded after merge');
-        }
-        
-        // Check for required columns
-        const firstRow = mergedData[0];
-        const requiredColumns = [...DATA_SCHEMA.featureColumns, DATA_SCHEMA.idColumn];
-        const missingColumns = requiredColumns.filter(col => !(col in firstRow));
-        
-        if (missingColumns.length > 0) {
-            console.warn(`Missing columns: ${missingColumns.join(', ')}. Dataset might have different structure.`);
-        }
-        
-        showMessage(dom.dataLoadMessage, `✅ Successfully loaded and merged ${mergedData.length} records (${trainData.length} train, ${testData.length} test)`, 'success');
+        mergedData = mergeDatasets(trainData, testData);
         
         // Update UI
-        updateUIState('dataLoaded');
-        showOverview();
+        updateDataOverview();
+        runEDABtn.disabled = false;
+        runEDABtn.style.opacity = '1';
+        
+        console.log('Data loaded successfully:', {
+            train: trainData.length,
+            test: testData.length,
+            merged: mergedData.length
+        });
         
     } catch (error) {
-        console.error('Error loading data:', error);
-        showMessage(dom.dataLoadMessage, `❌ Error: ${error.message}`, 'warning');
-        updateUIState('initial');
+        alert(`Error loading data: ${error.message}`);
+        console.error('Load error:', error);
     }
 }
 
 /**
- * Load sample data for demonstration purposes
+ * Parse CSV file using PapaParse
  */
-function loadSampleData() {
-    showMessage(dom.dataLoadMessage, 'Loading sample data... This is a demo with limited records.', 'info');
-    
-    // Create minimal sample data for demonstration
-    // In a real scenario, you might want to include actual sample data
-    trainData = [
-        { PassengerId: 1, Survived: 0, Pclass: 3, Sex: 'male', Age: 22, SibSp: 1, Parch: 0, Fare: 7.25, Embarked: 'S' },
-        { PassengerId: 2, Survived: 1, Pclass: 1, Sex: 'female', Age: 38, SibSp: 1, Parch: 0, Fare: 71.28, Embarked: 'C' },
-        { PassengerId: 3, Survived: 1, Pclass: 3, Sex: 'female', Age: 26, SibSp: 0, Parch: 0, Fare: 7.92, Embarked: 'S' },
-        { PassengerId: 4, Survived: 1, Pclass: 1, Sex: 'female', Age: 35, SibSp: 1, Parch: 0, Fare: 53.1, Embarked: 'S' },
-        { PassengerId: 5, Survived: 0, Pclass: 3, Sex: 'male', Age: 35, SibSp: 0, Parch: 0, Fare: 8.05, Embarked: 'S' }
-    ].map(row => ({ ...row, source: 'train' }));
-    
-    testData = [
-        { PassengerId: 6, Pclass: 3, Sex: 'male', Age: null, SibSp: 0, Parch: 0, Fare: 8.46, Embarked: 'Q' },
-        { PassengerId: 7, Pclass: 1, Sex: 'male', Age: 54, SibSp: 0, Parch: 0, Fare: 51.86, Embarked: 'S' },
-        { PassengerId: 8, Pclass: 3, Sex: 'female', Age: 2, SibSp: 3, Parch: 1, Fare: 21.08, Embarked: 'S' }
-    ].map(row => ({ ...row, source: 'test', Survived: null }));
-    
-    mergedData = [...trainData, ...testData];
-    
-    showMessage(dom.dataLoadMessage, `✅ Loaded ${mergedData.length} sample records (${trainData.length} train, ${testData.length} test)`, 'success');
-    
-    // Update UI
-    updateUIState('dataLoaded');
-    showOverview();
-}
-
-// ============================================
-// UI STATE MANAGEMENT
-// ============================================
-/**
- * Update UI state based on current data status
- */
-function updateUIState(state) {
-    switch (state) {
-        case 'initial':
-            // Disable all analysis buttons initially
-            dom.togglePreviewBtn.classList.add('hidden');
-            dom.runStatsBtn.classList.add('hidden');
-            dom.generateVisualsBtn.classList.add('hidden');
-            dom.exportCsvBtn.disabled = true;
-            dom.exportJsonBtn.disabled = true;
-            break;
-            
-        case 'dataLoaded':
-            // Enable analysis buttons when data is loaded
-            dom.togglePreviewBtn.classList.remove('hidden');
-            dom.runStatsBtn.classList.remove('hidden');
-            dom.generateVisualsBtn.classList.remove('hidden');
-            dom.exportCsvBtn.disabled = false;
-            dom.exportJsonBtn.disabled = false;
-            
-            // Automatically run missing values analysis
-            setTimeout(() => {
-                analyzeMissingValues();
-                calculateStatistics();
-                generateVisualizations();
-            }, 500);
-            break;
-    }
-}
-
-/**
- * Show message with styling
- */
-function showMessage(element, text, type = 'info') {
-    element.textContent = text;
-    element.className = type; // 'info', 'success', 'warning'
-    element.classList.remove('hidden');
-    
-    // Auto-hide info messages after 5 seconds
-    if (type === 'info') {
-        setTimeout(() => {
-            element.classList.add('hidden');
-        }, 5000);
-    }
-}
-
-// ============================================
-// OVERVIEW AND DATA PREVIEW
-// ============================================
-/**
- * Display dataset overview and statistics
- */
-function showOverview() {
-    if (!mergedData || mergedData.length === 0) return;
-    
-    // Update statistics
-    dom.totalPassengers.textContent = mergedData.length;
-    dom.trainSamples.textContent = trainData.length;
-    dom.testSamples.textContent = testData.length;
-    dom.featureCount.textContent = DATA_SCHEMA.featureColumns.length;
-    
-    // Show overview content
-    dom.overviewContent.classList.remove('hidden');
-    dom.overviewPlaceholder.classList.add('hidden');
-    
-    // Show toggle button
-    dom.togglePreviewBtn.classList.remove('hidden');
-    
-    // Show data preview
-    showDataPreview();
-}
-
-/**
- * Display a preview of the data (first 10 rows)
- */
-function showDataPreview() {
-    if (!mergedData || mergedData.length === 0) return;
-    
-    const previewRows = mergedData.slice(0, 10);
-    const columns = ['source', ...DATA_SCHEMA.featureColumns, DATA_SCHEMA.targetColumn].filter(col => 
-        col in previewRows[0]
-    );
-    
-    // Create table header
-    let html = '<thead><tr>';
-    columns.forEach(col => {
-        html += `<th>${col}</th>`;
-    });
-    html += '</tr></thead>';
-    
-    // Create table body
-    html += '<tbody>';
-    previewRows.forEach(row => {
-        html += '<tr>';
-        columns.forEach(col => {
-            const value = row[col];
-            // Handle different value types
-            if (value === null || value === undefined) {
-                html += '<td><em style="color: #999;">null</em></td>';
-            } else if (typeof value === 'number') {
-                html += `<td>${value.toFixed(2)}</td>`;
-            } else {
-                html += `<td>${value}</td>`;
+function parseCSV(csvText, source) {
+    return new Promise((resolve, reject) => {
+        Papa.parse(csvText, {
+            header: true,
+            dynamicTyping: true,
+            skipEmptyLines: true,
+            quoteChar: '"',
+            complete: (results) => {
+                // Add source column to identify dataset
+                const data = results.data.map(row => ({
+                    ...row,
+                    Source: source
+                }));
+                resolve(data);
+            },
+            error: (error) => {
+                reject(error);
             }
         });
-        html += '</tr>';
     });
-    html += '</tbody>';
-    
-    dom.dataPreview.innerHTML = html;
-    dom.dataPreviewContainer.classList.remove('hidden');
 }
 
 /**
- * Toggle data preview visibility
+ * Read file as text
  */
-function toggleDataPreview() {
-    dom.dataPreviewContainer.classList.toggle('hidden');
+function readFile(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = (e) => reject(e);
+        reader.readAsText(file);
+    });
 }
 
-// ============================================
-// MISSING VALUES ANALYSIS
-// ============================================
 /**
- * Analyze and display missing values
+ * Merge train and test datasets
+ */
+function mergeDatasets(train, test) {
+    // For test data, add Survived as null (missing)
+    const testWithSurvived = test.map(row => ({
+        ...row,
+        Survived: null
+    }));
+    
+    return [...train, ...testWithSurvived];
+}
+
+/**
+ * Update data overview section
+ */
+function updateDataOverview() {
+    const overviewInfo = document.getElementById('overviewInfo');
+    const table = document.getElementById('previewTable');
+    const thead = table.querySelector('thead tr');
+    const tbody = table.querySelector('tbody');
+    
+    // Clear previous content
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
+    
+    // Update overview info
+    overviewInfo.innerHTML = `
+        <div class="stats-grid">
+            <div class="stat-box">
+                <h4>Train Data</h4>
+                <p>${trainData.length} passengers with survival labels</p>
+            </div>
+            <div class="stat-box">
+                <h4>Test Data</h4>
+                <p>${testData.length} passengers without labels</p>
+            </div>
+            <div class="stat-box">
+                <h4>Merged Data</h4>
+                <p>${mergedData.length} total passengers</p>
+            </div>
+            <div class="stat-box">
+                <h4>Features</h4>
+                <p>${Object.keys(mergedData[0]).length} columns total</p>
+            </div>
+        </div>
+    `;
+    
+    // Get column headers (exclude some if needed)
+    const columns = Object.keys(mergedData[0]);
+    
+    // Create table headers
+    columns.forEach(col => {
+        const th = document.createElement('th');
+        th.textContent = col;
+        thead.appendChild(th);
+    });
+    
+    // Add first 10 rows to preview
+    const previewRows = mergedData.slice(0, 10);
+    previewRows.forEach(row => {
+        const tr = document.createElement('tr');
+        columns.forEach(col => {
+            const td = document.createElement('td');
+            td.textContent = row[col] === null || row[col] === undefined ? 'N/A' : row[col];
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+}
+
+/**
+ * Run full EDA analysis
+ */
+function runFullEDA() {
+    if (!mergedData) {
+        alert('Please load data first');
+        return;
+    }
+    
+    // Run all analyses
+    analyzeMissingValues();
+    calculateStatistics();
+    createVisualizations();
+    determineKeyFactor();
+    
+    console.log('Full EDA completed');
+}
+
+/**
+ * Analyze missing values
  */
 function analyzeMissingValues() {
-    if (!mergedData || mergedData.length === 0) return;
+    const missingInfo = document.getElementById('missingInfo');
+    const columns = Object.keys(mergedData[0]);
     
-    // Calculate missing values per column
-    const columnsToCheck = [...DATA_SCHEMA.featureColumns, DATA_SCHEMA.targetColumn];
-    const missingStats = columnsToCheck.map(col => {
-        const missingCount = mergedData.filter(row => 
-            row[col] === null || row[col] === undefined || row[col] === '' || 
+    // Calculate missing percentages
+    const missingStats = columns.map(col => {
+        const total = mergedData.length;
+        const missing = mergedData.filter(row => 
+            row[col] === null || 
+            row[col] === undefined || 
+            row[col] === '' || 
             (typeof row[col] === 'number' && isNaN(row[col]))
         ).length;
-        const missingPercent = (missingCount / mergedData.length) * 100;
         
         return {
             column: col,
-            missingCount,
-            missingPercent: missingPercent.toFixed(1),
-            dataType: DATA_SCHEMA.numericFeatures.includes(col) ? 'numeric' : 
-                     DATA_SCHEMA.categoricalFeatures.includes(col) ? 'categorical' : 'other'
+            missing: missing,
+            percentage: (missing / total * 100).toFixed(1)
         };
     });
     
-    // Show missing values content
-    dom.missingValuesContent.classList.remove('hidden');
-    dom.missingValuesPlaceholder.classList.add('hidden');
+    // Display missing values info
+    missingInfo.innerHTML = `
+        <h4>Missing Values Summary</h4>
+        <p>Total rows: ${mergedData.length}</p>
+        <div class="stats-grid">
+            ${missingStats.map(stat => `
+                <div class="stat-box">
+                    <h4>${stat.column}</h4>
+                    <p>Missing: ${stat.missing} (${stat.percentage}%)</p>
+                </div>
+            `).join('')}
+        </div>
+    `;
     
-    // Create bar chart
+    // Create bar chart for missing values
     createMissingValuesChart(missingStats);
-    
-    // Create table
-    createMissingValuesTable(missingStats);
 }
 
 /**
- * Create bar chart for missing values
+ * Create missing values chart
  */
 function createMissingValuesChart(missingStats) {
+    const ctx = document.getElementById('missingValuesChart').getContext('2d');
+    
     // Destroy existing chart if it exists
     if (charts.missingValues) {
         charts.missingValues.destroy();
     }
     
-    const ctx = dom.missingValuesChart.getContext('2d');
+    const labels = missingStats.map(stat => stat.column);
+    const data = missingStats.map(stat => parseFloat(stat.percentage));
+    
     charts.missingValues = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: missingStats.map(stat => stat.column),
+            labels: labels,
             datasets: [{
                 label: 'Missing Values (%)',
-                data: missingStats.map(stat => parseFloat(stat.missingPercent)),
-                backgroundColor: missingStats.map(stat => 
-                    parseFloat(stat.missingPercent) > 20 ? 'rgba(231, 76, 60, 0.7)' :
-                    parseFloat(stat.missingPercent) > 5 ? 'rgba(241, 196, 15, 0.7)' :
-                    'rgba(46, 204, 113, 0.7)'
+                data: data,
+                backgroundColor: data.map(pct => 
+                    pct > 50 ? '#e74c3c' : 
+                    pct > 20 ? '#f39c12' : 
+                    pct > 5 ? '#f1c40f' : '#2ecc71'
                 ),
-                borderColor: missingStats.map(stat => 
-                    parseFloat(stat.missingPercent) > 20 ? 'rgb(231, 76, 60)' :
-                    parseFloat(stat.missingPercent) > 5 ? 'rgb(241, 196, 15)' :
-                    'rgb(46, 204, 113)'
-                ),
+                borderColor: '#34495e',
                 borderWidth: 1
             }]
         },
         options: {
             responsive: true,
-            maintainAspectRatio: false,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Percentage of Missing Values by Column'
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (context) => `${context.parsed.y}% missing`
+                    }
+                }
+            },
             scales: {
                 y: {
                     beginAtZero: true,
                     max: 100,
                     title: {
                         display: true,
-                        text: 'Percentage Missing (%)'
+                        text: 'Percentage (%)'
                     }
                 },
                 x: {
                     ticks: {
-                        autoSkip: false,
                         maxRotation: 45
                     }
                 }
-            },
-            plugins: {
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            const stat = missingStats[context.dataIndex];
-                            return `${stat.missingPercent}% (${stat.missingCount} of ${mergedData.length} records)`;
-                        }
-                    }
-                },
-                legend: {
-                    display: false
-                }
             }
         }
     });
 }
 
 /**
- * Create table for missing values
- */
-function createMissingValuesTable(missingStats) {
-    let html = '<table class="data-table"><thead><tr>';
-    html += '<th>Column</th><th>Type</th><th>Missing Count</th><th>Missing %</th><th>Status</th></tr></thead><tbody>';
-    
-    missingStats.forEach(stat => {
-        const missingPercentNum = parseFloat(stat.missingPercent);
-        let statusClass = '';
-        let statusText = '';
-        
-        if (missingPercentNum === 0) {
-            statusClass = 'success';
-            statusText = 'Complete';
-        } else if (missingPercentNum <= 5) {
-            statusClass = 'success';
-            statusText = 'Good';
-        } else if (missingPercentNum <= 20) {
-            statusClass = 'warning';
-            statusText = 'Moderate';
-        } else {
-            statusClass = 'warning';
-            statusText = 'High';
-        }
-        
-        html += `<tr>
-            <td><strong>${stat.column}</strong></td>
-            <td>${stat.dataType}</td>
-            <td>${stat.missingCount}</td>
-            <td>${stat.missingPercent}%</td>
-            <td><span class="${statusClass}">${statusText}</span></td>
-        </tr>`;
-    });
-    
-    html += '</tbody></table>';
-    dom.missingValuesTableContainer.innerHTML = html;
-}
-
-// ============================================
-// STATISTICAL SUMMARY
-// ============================================
-/**
- * Calculate and display statistical summaries
+ * Calculate statistical summaries
  */
 function calculateStatistics() {
-    if (!mergedData || mergedData.length === 0) return;
+    const statsContainer = document.getElementById('statsContainer');
     
-    // Show stats content
-    dom.statsSummaryContent.classList.remove('hidden');
-    dom.statsSummaryPlaceholder.classList.add('hidden');
+    // Get only train data for survival analysis
+    const trainOnly = mergedData.filter(row => row.Source === 'train');
     
-    // Calculate numeric statistics
-    calculateNumericStats();
+    // Numeric columns to analyze
+    const numericCols = ['Age', 'Fare', 'SibSp', 'Parch'];
+    const categoricalCols = ['Pclass', 'Sex', 'Embarked'];
     
-    // Calculate categorical statistics
-    calculateCategoricalStats();
-    
-    // Calculate survival statistics (train data only)
-    calculateSurvivalStats();
-}
-
-/**
- * Calculate statistics for numeric features
- */
-function calculateNumericStats() {
-    const numericStats = {};
-    
-    DATA_SCHEMA.numericFeatures.forEach(feature => {
-        const values = mergedData
-            .map(row => row[feature])
-            .filter(val => val !== null && val !== undefined && !isNaN(val) && typeof val === 'number');
-        
-        if (values.length === 0) {
-            numericStats[feature] = { count: 0, message: 'No valid numeric values' };
-            return;
-        }
-        
-        // Sort for median calculation
-        const sortedValues = [...values].sort((a, b) => a - b);
-        const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
-        const median = sortedValues[Math.floor(sortedValues.length / 2)];
-        
-        // Standard deviation
-        const squaredDiffs = values.map(val => Math.pow(val - mean, 2));
-        const variance = squaredDiffs.reduce((sum, val) => sum + val, 0) / values.length;
-        const std = Math.sqrt(variance);
-        
-        // Min and max
-        const min = Math.min(...values);
-        const max = Math.max(...values);
-        
-        numericStats[feature] = {
-            count: values.length,
-            missing: mergedData.length - values.length,
-            mean: mean.toFixed(2),
-            median: median.toFixed(2),
-            std: std.toFixed(2),
-            min: min.toFixed(2),
-            max: max.toFixed(2),
-            range: (max - min).toFixed(2)
+    // Calculate overall statistics
+    const numericStats = numericCols.map(col => {
+        const values = trainOnly.map(row => row[col]).filter(val => val !== null && !isNaN(val));
+        return {
+            column: col,
+            mean: values.length ? (values.reduce((a, b) => a + b, 0) / values.length).toFixed(2) : 'N/A',
+            median: values.length ? calculateMedian(values) : 'N/A',
+            std: values.length ? calculateStdDev(values).toFixed(2) : 'N/A',
+            min: values.length ? Math.min(...values).toFixed(2) : 'N/A',
+            max: values.length ? Math.max(...values).toFixed(2) : 'N/A'
         };
     });
     
-    // Display numeric stats
-    let html = '<h3>Numeric Features Summary</h3><table class="data-table"><thead><tr>';
-    html += '<th>Feature</th><th>Count</th><th>Missing</th><th>Mean</th><th>Median</th><th>Std Dev</th><th>Min</th><th>Max</th><th>Range</th></tr></thead><tbody>';
+    // Calculate survival rates by category
+    const survivalBySex = calculateSurvivalRate(trainOnly, 'Sex');
+    const survivalByClass = calculateSurvivalRate(trainOnly, 'Pclass');
+    const survivalByEmbarked = calculateSurvivalRate(trainOnly, 'Embarked');
     
-    Object.entries(numericStats).forEach(([feature, stats]) => {
-        if (stats.message) {
-            html += `<tr><td><strong>${feature}</strong></td><td colspan="8">${stats.message}</td></tr>`;
-        } else {
-            html += `<tr>
-                <td><strong>${feature}</strong></td>
-                <td>${stats.count}</td>
-                <td>${stats.missing}</td>
-                <td>${stats.mean}</td>
-                <td>${stats.median}</td>
-                <td>${stats.std}</td>
-                <td>${stats.min}</td>
-                <td>${stats.max}</td>
-                <td>${stats.range}</td>
-            </tr>`;
+    // Display statistics
+    statsContainer.innerHTML = `
+        <div class="stat-box">
+            <h4>Overall Survival</h4>
+            <p>Total: ${trainOnly.length}</p>
+            <p>Survived: ${trainOnly.filter(r => r.Survived === 1).length}</p>
+            <p>Died: ${trainOnly.filter(r => r.Survived === 0).length}</p>
+            <p>Survival Rate: ${(trainOnly.filter(r => r.Survived === 1).length / trainOnly.length * 100).toFixed(1)}%</p>
+        </div>
+        
+        <div class="stat-box">
+            <h4>Survival by Sex</h4>
+            ${Object.entries(survivalBySex).map(([sex, rate]) => `
+                <p>${sex}: ${(rate * 100).toFixed(1)}% survived</p>
+            `).join('')}
+        </div>
+        
+        <div class="stat-box">
+            <h4>Survival by Class</h4>
+            ${Object.entries(survivalByClass).map(([pclass, rate]) => `
+                <p>Class ${pclass}: ${(rate * 100).toFixed(1)}% survived</p>
+            `).join('')}
+        </div>
+        
+        <div class="stat-box">
+            <h4>Numeric Statistics</h4>
+            ${numericStats.map(stat => `
+                <p><strong>${stat.column}:</strong> 
+                Mean=${stat.mean}, Median=${stat.median}, Std=${stat.std}</p>
+            `).join('')}
+        </div>
+    `;
+}
+
+/**
+ * Calculate median of an array
+ */
+function calculateMedian(values) {
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 !== 0 ? 
+        sorted[mid].toFixed(2) : 
+        ((sorted[mid - 1] + sorted[mid]) / 2).toFixed(2);
+}
+
+/**
+ * Calculate standard deviation
+ */
+function calculateStdDev(values) {
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    const squaredDiffs = values.map(val => Math.pow(val - mean, 2));
+    const avgSquaredDiff = squaredDiffs.reduce((a, b) => a + b, 0) / values.length;
+    return Math.sqrt(avgSquaredDiff);
+}
+
+/**
+ * Calculate survival rate by category
+ */
+function calculateSurvivalRate(data, column) {
+    const groups = {};
+    
+    // Group data by column value
+    data.forEach(row => {
+        if (row[column] !== null && row.Survived !== null) {
+            const key = row[column];
+            if (!groups[key]) {
+                groups[key] = { total: 0, survived: 0 };
+            }
+            groups[key].total++;
+            if (row.Survived === 1) {
+                groups[key].survived++;
+            }
         }
     });
     
-    html += '</tbody></table>';
-    dom.numericStatsContainer.innerHTML = html;
-    dom.numericStatsContainer.classList.remove('hidden');
+    // Calculate rates
+    const rates = {};
+    Object.entries(groups).forEach(([key, stats]) => {
+        rates[key] = stats.survived / stats.total;
+    });
+    
+    return rates;
 }
 
 /**
- * Calculate statistics for categorical features
+ * Create all visualizations
  */
-function calculateCategoricalStats() {
-    const categoricalStats = {};
+function createVisualizations() {
+    const trainOnly = mergedData.filter(row => row.Source === 'train');
     
-    DATA_SCHEMA.categoricalFeatures.forEach(feature => {
-        const values = mergedData
-            .map(row => row[feature])
-            .filter(val => val !== null && val !== undefined && val !== '' && !isNaN(val));
-        
-        if (values.length === 0) {
-            categoricalStats[feature] = { count: 0, message: 'No valid categorical values' };
-            return;
-        }
-        
-        // Count frequencies
-        const frequency = {};
-        values.forEach(val => {
-            const key = String(val);
-            frequency[key] = (frequency[key] || 0) + 1;
-        });
-        
-        // Convert to array and sort by frequency
-        const frequencyArray = Object.entries(frequency)
-            .map(([value, count]) => ({ value, count, percent: (count / values.length * 100).toFixed(1) }))
-            .sort((a, b) => b.count - a.count);
-        
-        categoricalStats[feature] = {
-            count: values.length,
-            missing: mergedData.length - values.length,
-            unique: frequencyArray.length,
-            frequencies: frequencyArray
-        };
-    });
-    
-    // Display categorical stats
-    let html = '<h3>Categorical Features Summary</h3>';
-    
-    Object.entries(categoricalStats).forEach(([feature, stats]) => {
-        if (stats.message) {
-            html += `<div class="stat-box"><h4>${feature}</h4><p>${stats.message}</p></div>`;
-        } else {
-            html += `<div class="stat-box">
-                <h4>${feature}</h4>
-                <p><strong>Valid Values:</strong> ${stats.count} | <strong>Missing:</strong> ${stats.missing}</p>
-                <p><strong>Unique Categories:</strong> ${stats.unique}</p>
-                <table class="data-table" style="margin-top: 10px;">
-                    <thead><tr><th>Value</th><th>Count</th><th>%</th></tr></thead>
-                    <tbody>`;
-            
-            stats.frequencies.forEach(freq => {
-                html += `<tr>
-                    <td>${freq.value}</td>
-                    <td>${freq.count}</td>
-                    <td>${freq.percent}%</td>
-                </tr>`;
-            });
-            
-            html += '</tbody></table></div>';
-        }
-    });
-    
-    dom.categoricalStatsContainer.innerHTML = html;
-    dom.categoricalStatsContainer.classList.remove('hidden');
+    // Create individual charts
+    createSexChart(trainOnly);
+    createClassChart(trainOnly);
+    createAgeChart(trainOnly);
+    createFareChart(trainOnly);
+    createEmbarkedChart(trainOnly);
+    createCorrelationChart(trainOnly);
 }
 
 /**
- * Calculate survival statistics from train data only
+ * Create sex survival chart
  */
-function calculateSurvivalStats() {
-    if (!trainData || trainData.length === 0) return;
+function createSexChart(data) {
+    const ctx = document.getElementById('sexChart').getContext('2d');
+    const survivalRates = calculateSurvivalRate(data, 'Sex');
     
-    // Filter only train data with valid Survived values
-    const validTrainData = trainData.filter(row => 
-        row[DATA_SCHEMA.targetColumn] !== null && 
-        row[DATA_SCHEMA.targetColumn] !== undefined
-    );
-    
-    if (validTrainData.length === 0) {
-        dom.survivalStatsContainer.innerHTML = '<p>No survival data available in train set.</p>';
-        dom.survivalStatsContainer.classList.remove('hidden');
-        return;
-    }
-    
-    // Overall survival
-    const total = validTrainData.length;
-    const survived = validTrainData.filter(row => row[DATA_SCHEMA.targetColumn] === 1).length;
-    const notSurvived = validTrainData.filter(row => row[DATA_SCHEMA.targetColumn] === 0).length;
-    const survivalRate = (survived / total * 100).toFixed(1);
-    
-    // Survival by sex
-    const maleSurvived = validTrainData.filter(row => 
-        row.Sex === 'male' && row[DATA_SCHEMA.targetColumn] === 1
-    ).length;
-    const maleTotal = validTrainData.filter(row => row.Sex === 'male').length;
-    const maleRate = maleTotal > 0 ? (maleSurvived / maleTotal * 100).toFixed(1) : 'N/A';
-    
-    const femaleSurvived = validTrainData.filter(row => 
-        row.Sex === 'female' && row[DATA_SCHEMA.targetColumn] === 1
-    ).length;
-    const femaleTotal = validTrainData.filter(row => row.Sex === 'female').length;
-    const femaleRate = femaleTotal > 0 ? (femaleSurvived / femaleTotal * 100).toFixed(1) : 'N/A';
-    
-    // Survival by class
-    const survivalByClass = {};
-    [1, 2, 3].forEach(pclass => {
-        const classData = validTrainData.filter(row => row.Pclass === pclass);
-        const classSurvived = classData.filter(row => row[DATA_SCHEMA.targetColumn] === 1).length;
-        survivalByClass[pclass] = {
-            total: classData.length,
-            survived: classSurvived,
-            rate: classData.length > 0 ? (classSurvived / classData.length * 100).toFixed(1) : 'N/A'
-        };
-    });
-    
-    // Display survival stats
-    let html = `<h3>Survival Analysis (Train Data Only)</h3>
-                <div class="stats-grid">
-                    <div class="stat-box">
-                        <h4>Overall Survival</h4>
-                        <div class="stat-value">${survivalRate}%</div>
-                        <p>${survived} survived / ${total} total</p>
-                    </div>
-                    <div class="stat-box">
-                        <h4>Male Survival</h4>
-                        <div class="stat-value">${maleRate}%</div>
-                        <p>${maleSurvived} survived / ${maleTotal} total</p>
-                    </div>
-                    <div class="stat-box">
-                        <h4>Female Survival</h4>
-                        <div class="stat-value">${femaleRate}%</div>
-                        <p>${femaleSurvived} survived / ${femaleTotal} total</p>
-                    </div>
-                </div>
-                <h4 style="margin-top: 20px;">Survival by Passenger Class</h4>
-                <table class="data-table">
-                    <thead><tr><th>Class</th><th>Total</th><th>Survived</th><th>Survival Rate</th></tr></thead>
-                    <tbody>`;
-    
-    [1, 2, 3].forEach(pclass => {
-        const stats = survivalByClass[pclass];
-        html += `<tr>
-            <td>${pclass}</td>
-            <td>${stats.total}</td>
-            <td>${stats.survived}</td>
-            <td>${stats.rate}%</td>
-        </tr>`;
-    });
-    
-    html += '</tbody></table>';
-    
-    dom.survivalStatsContainer.innerHTML = html;
-    dom.survivalStatsContainer.classList.remove('hidden');
-}
-
-// ============================================
-// VISUALIZATIONS
-// ============================================
-/**
- * Generate all visualizations
- */
-function generateVisualizations() {
-    if (!mergedData || mergedData.length === 0) return;
-    
-    // Show visualizations content
-    dom.visualizationsContent.classList.remove('hidden');
-    dom.visualizationsPlaceholder.classList.add('hidden');
-    
-    // Generate individual visualizations
-    createSexChart();
-    createPclassChart();
-    createEmbarkedChart();
-    createAgeHistogram();
-    createFareHistogram();
-    createCorrelationHeatmap();
-}
-
-/**
- * Create chart for Sex distribution
- */
-function createSexChart() {
     if (charts.sexChart) charts.sexChart.destroy();
     
-    const sexCounts = { male: 0, female: 0 };
-    mergedData.forEach(row => {
-        if (row.Sex === 'male') sexCounts.male++;
-        else if (row.Sex === 'female') sexCounts.female++;
-    });
-    
-    const ctx = dom.sexChart.getContext('2d');
     charts.sexChart = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: ['Male', 'Female'],
+            labels: Object.keys(survivalRates),
             datasets: [{
-                label: 'Passengers',
-                data: [sexCounts.male, sexCounts.female],
-                backgroundColor: ['rgba(54, 162, 235, 0.7)', 'rgba(255, 99, 132, 0.7)'],
-                borderColor: ['rgb(54, 162, 235)', 'rgb(255, 99, 132)'],
+                label: 'Survival Rate',
+                data: Object.values(survivalRates).map(rate => rate * 100),
+                backgroundColor: ['#3498db', '#e74c3c'],
+                borderColor: '#2c3e50',
                 borderWidth: 1
             }]
         },
         options: {
             responsive: true,
-            maintainAspectRatio: false,
             plugins: {
                 title: {
                     display: true,
-                    text: 'Passenger Gender Distribution'
+                    text: 'Survival Rate by Gender'
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (context) => `${context.parsed.y.toFixed(1)}% survived`
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: {
+                        display: true,
+                        text: 'Survival Rate (%)'
+                    }
                 }
             }
         }
@@ -857,38 +491,46 @@ function createSexChart() {
 }
 
 /**
- * Create chart for Pclass distribution
+ * Create class survival chart
  */
-function createPclassChart() {
-    if (charts.pclassChart) charts.pclassChart.destroy();
+function createClassChart(data) {
+    const ctx = document.getElementById('classChart').getContext('2d');
+    const survivalRates = calculateSurvivalRate(data, 'Pclass');
     
-    const pclassCounts = { 1: 0, 2: 0, 3: 0 };
-    mergedData.forEach(row => {
-        if ([1, 2, 3].includes(row.Pclass)) {
-            pclassCounts[row.Pclass]++;
-        }
-    });
+    // Sort by class
+    const labels = Object.keys(survivalRates).sort();
+    const rates = labels.map(label => survivalRates[label] * 100);
     
-    const ctx = dom.pclassChart.getContext('2d');
-    charts.pclassChart = new Chart(ctx, {
+    if (charts.classChart) charts.classChart.destroy();
+    
+    charts.classChart = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: ['1st Class', '2nd Class', '3rd Class'],
+            labels: labels.map(c => `Class ${c}`),
             datasets: [{
-                label: 'Passengers',
-                data: [pclassCounts[1], pclassCounts[2], pclassCounts[3]],
-                backgroundColor: ['rgba(255, 159, 64, 0.7)', 'rgba(75, 192, 192, 0.7)', 'rgba(153, 102, 255, 0.7)'],
-                borderColor: ['rgb(255, 159, 64)', 'rgb(75, 192, 192)', 'rgb(153, 102, 255)'],
+                label: 'Survival Rate',
+                data: rates,
+                backgroundColor: ['#2ecc71', '#3498db', '#e74c3c'],
+                borderColor: '#2c3e50',
                 borderWidth: 1
             }]
         },
         options: {
             responsive: true,
-            maintainAspectRatio: false,
             plugins: {
                 title: {
                     display: true,
-                    text: 'Passenger Class Distribution'
+                    text: 'Survival Rate by Passenger Class'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: {
+                        display: true,
+                        text: 'Survival Rate (%)'
+                    }
                 }
             }
         }
@@ -896,34 +538,187 @@ function createPclassChart() {
 }
 
 /**
- * Create chart for Embarked distribution
+ * Create age distribution chart
  */
-function createEmbarkedChart() {
+function createAgeChart(data) {
+    const ctx = document.getElementById('ageChart').getContext('2d');
+    
+    // Filter out null ages and separate by survival
+    const survivedAges = data.filter(row => row.Survived === 1 && row.Age !== null).map(row => row.Age);
+    const diedAges = data.filter(row => row.Survived === 0 && row.Age !== null).map(row => row.Age);
+    
+    if (charts.ageChart) charts.ageChart.destroy();
+    
+    charts.ageChart = new Chart(ctx, {
+        type: 'histogram',
+        data: {
+            datasets: [
+                {
+                    label: 'Survived',
+                    data: survivedAges,
+                    backgroundColor: 'rgba(46, 204, 113, 0.5)',
+                    borderColor: '#27ae60',
+                    borderWidth: 1
+                },
+                {
+                    label: 'Died',
+                    data: diedAges,
+                    backgroundColor: 'rgba(231, 76, 60, 0.5)',
+                    borderColor: '#c0392b',
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Age Distribution by Survival Status'
+                }
+            },
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Age'
+                    },
+                    min: 0,
+                    max: 80
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: 'Frequency'
+                    },
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Create fare distribution chart
+ */
+function createFareChart(data) {
+    const ctx = document.getElementById('fareChart').getContext('2d');
+    
+    const survivedFares = data.filter(row => row.Survived === 1 && row.Fare !== null).map(row => row.Fare);
+    const diedFares = data.filter(row => row.Survived === 0 && row.Fare !== null).map(row => row.Fare);
+    
+    if (charts.fareChart) charts.fareChart.destroy();
+    
+    charts.fareChart = new Chart(ctx, {
+        type: 'histogram',
+        data: {
+            datasets: [
+                {
+                    label: 'Survived',
+                    data: survivedFares,
+                    backgroundColor: 'rgba(46, 204, 113, 0.5)',
+                    borderColor: '#27ae60',
+                    borderWidth: 1
+                },
+                {
+                    label: 'Died',
+                    data: diedFares,
+                    backgroundColor: 'rgba(231, 76, 60, 0.5)',
+                    borderColor: '#c0392b',
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Fare Distribution by Survival Status'
+                }
+            },
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Fare'
+                    },
+                    min: 0,
+                    max: 100
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: 'Frequency'
+                    },
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Create embarked port chart
+ */
+function createEmbarkedChart(data) {
+    const ctx = document.getElementById('embarkedChart').getContext('2d');
+    const survivalRates = calculateSurvivalRate(data, 'Embarked');
+    
     if (charts.embarkedChart) charts.embarkedChart.destroy();
     
-    const embarkedCounts = { C: 0, Q: 0, S: 0, Unknown: 0 };
-    mergedData.forEach(row => {
-        if (row.Embarked === 'C') embarkedCounts.C++;
-        else if (row.Embarked === 'Q') embarkedCounts.Q++;
-        else if (row.Embarked === 'S') embarkedCounts.S++;
-        else embarkedCounts.Unknown++;
-    });
-    
-    const ctx = dom.embarkedChart.getContext('2d');
     charts.embarkedChart = new Chart(ctx, {
-        type: 'pie',
+        type: 'bar',
         data: {
-            labels: ['Cherbourg (C)', 'Queenstown (Q)', 'Southampton (S)', 'Unknown'],
+            labels: Object.keys(survivalRates).map(port => 
+                port === 'C' ? 'Cherbourg' : 
+                port === 'Q' ? 'Queenstown' : 
+                port === 'S' ? 'Southampton' : port
+            ),
             datasets: [{
-                label: 'Passengers',
-                data: [embarkedCounts.C, embarkedCounts.Q, embarkedCounts.S, embarkedCounts.Unknown],
-                backgroundColor: [
-                    'rgba(255, 99, 132, 0.7)',
-                    'rgba(54, 162, 235, 0.7)',
-                    'rgba(255, 205, 86, 0.7)',
-                    'rgba(201, 203, 207, 0.7)'
-                ],
+                label: 'Survival Rate',
+                data: Object.values(survivalRates).map(rate => rate * 100),
+                backgroundColor: ['#9b59b6', '#3498db', '#2ecc71'],
+                borderColor: '#2c3e50',
                 borderWidth: 1
             }]
         },
-        options
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Survival Rate by Embarkation Port'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: {
+                        display: true,
+                        text: 'Survival Rate (%)'
+                    }
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Create correlation heatmap
+ */
+function createCorrelationChart(data) {
+    const ctx = document.getElementById('correlationChart').getContext('2d');
+    
+    // Select numeric features for correlation
+    const numericFeatures = ['Age', 'Fare', 'SibSp', 'Parch', 'Pclass'];
+    const survivalData = data.filter(row => 
+        row.Survived !== null && 
+        numericFeatures.every(f => row[f] !== null && !isNaN(row[f]))
+    );
+    
+    // Calculate correlation matrix
+    const correlations = calculateCorrelationMatrix(survivalData, numericFeatures);
+    
+    if (charts.correlationChart) charts.correlationChart.destroy();
