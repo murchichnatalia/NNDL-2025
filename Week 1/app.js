@@ -1,3 +1,20 @@
+// app.js
+/**
+ * Titanic Dataset EDA Explorer
+ * A client-side interactive exploratory data analysis tool for the Kaggle Titanic dataset
+ * Reusable for other datasets by modifying the schema below
+ */
+
+// ============================================
+// DATA SCHEMA CONFIGURATION
+// ============================================
+// TARGET: Survived (0/1, train only)
+// FEATURES: Pclass, Sex, Age, SibSp, Parch, Fare, Embarked
+// IDENTIFIER: PassengerId (excluded from analysis)
+// REUSE NOTE: Swap this schema for other datasets by updating:
+//   - targetColumn, featureColumns, idColumn
+//   - numericFeatures, categoricalFeatures
+//   - visualization configurations
 const DATA_SCHEMA = {
     targetColumn: 'Survived',  // Binary target variable (train only)
     featureColumns: ['Pclass', 'Sex', 'Age', 'SibSp', 'Parch', 'Fare', 'Embarked'],
@@ -77,18 +94,26 @@ const dom = {
 function setupEventListeners() {
     // File input change events
     dom.trainFileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (file) {
+        const files = e.target.files;
+        if (files && files.length > 0) {
+            const file = files[0];
             dom.trainStatus.textContent = `✅ Loaded: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
             dom.trainStatus.className = 'file-status loaded';
+        } else {
+            dom.trainStatus.textContent = 'No file selected';
+            dom.trainStatus.className = 'file-status';
         }
     });
     
     dom.testFileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (file) {
+        const files = e.target.files;
+        if (files && files.length > 0) {
+            const file = files[0];
             dom.testStatus.textContent = `✅ Loaded: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
             dom.testStatus.className = 'file-status loaded';
+        } else {
+            dom.testStatus.textContent = 'No file selected';
+            dom.testStatus.className = 'file-status';
         }
     });
     
@@ -112,13 +137,19 @@ function setupEventListeners() {
  * Load and merge train.csv and test.csv files
  */
 async function loadAndMergeData() {
-    const trainFile = dom.trainFileInput.files[0];
-    const testFile = dom.testFileInput.files[0];
+    // Get files properly
+    const trainFile = dom.trainFileInput.files ? dom.trainFileInput.files[0] : null;
+    const testFile = dom.testFileInput.files ? dom.testFileInput.files[0] : null;
     
     // Validate files are selected
     if (!trainFile || !testFile) {
         showMessage(dom.dataLoadMessage, 'Please select both train.csv and test.csv files.', 'warning');
         return;
+    }
+    
+    // Validate file names (optional but helpful)
+    if (!trainFile.name.toLowerCase().includes('train') || !testFile.name.toLowerCase().includes('test')) {
+        showMessage(dom.dataLoadMessage, 'Warning: Make sure train.csv is the training file and test.csv is the test file.', 'warning');
     }
     
     showMessage(dom.dataLoadMessage, 'Loading and parsing CSV files...', 'info');
@@ -132,18 +163,25 @@ async function loadAndMergeData() {
                 skipEmptyLines: true,
                 quotes: true, // Handle commas within quotes
                 complete: (results) => {
-                    if (results.errors.length > 0) {
-                        reject(new Error(`Train CSV parse errors: ${results.errors.map(e => e.message).join(', ')}`));
-                    } else {
-                        // Add source column
-                        const dataWithSource = results.data.map(row => ({
-                            ...row,
-                            source: 'train'
-                        }));
-                        resolve(dataWithSource);
+                    if (results.errors && results.errors.length > 0) {
+                        console.warn('CSV parse warnings:', results.errors);
                     }
+                    
+                    if (!results.data || results.data.length === 0) {
+                        reject(new Error('Train CSV file is empty or could not be parsed'));
+                        return;
+                    }
+                    
+                    // Add source column
+                    const dataWithSource = results.data.map(row => ({
+                        ...row,
+                        source: 'train'
+                    }));
+                    resolve(dataWithSource);
                 },
-                error: (error) => reject(error)
+                error: (error) => {
+                    reject(new Error(`Failed to parse train.csv: ${error.message}`));
+                }
             });
         });
         
@@ -155,19 +193,26 @@ async function loadAndMergeData() {
                 skipEmptyLines: true,
                 quotes: true,
                 complete: (results) => {
-                    if (results.errors.length > 0) {
-                        reject(new Error(`Test CSV parse errors: ${results.errors.map(e => e.message).join(', ')}`));
-                    } else {
-                        // Add source column and missing Survived column
-                        const dataWithSource = results.data.map(row => ({
-                            ...row,
-                            source: 'test',
-                            Survived: null // Add Survived column with null for test data
-                        }));
-                        resolve(dataWithSource);
+                    if (results.errors && results.errors.length > 0) {
+                        console.warn('CSV parse warnings:', results.errors);
                     }
+                    
+                    if (!results.data || results.data.length === 0) {
+                        reject(new Error('Test CSV file is empty or could not be parsed'));
+                        return;
+                    }
+                    
+                    // Add source column and missing Survived column
+                    const dataWithSource = results.data.map(row => ({
+                        ...row,
+                        source: 'test',
+                        Survived: null // Add Survived column with null for test data
+                    }));
+                    resolve(dataWithSource);
                 },
-                error: (error) => reject(error)
+                error: (error) => {
+                    reject(new Error(`Failed to parse test.csv: ${error.message}`));
+                }
             });
         });
         
@@ -188,7 +233,7 @@ async function loadAndMergeData() {
         const missingColumns = requiredColumns.filter(col => !(col in firstRow));
         
         if (missingColumns.length > 0) {
-            throw new Error(`Missing required columns: ${missingColumns.join(', ')}`);
+            console.warn(`Missing columns: ${missingColumns.join(', ')}. Dataset might have different structure.`);
         }
         
         showMessage(dom.dataLoadMessage, `✅ Successfully loaded and merged ${mergedData.length} records (${trainData.length} train, ${testData.length} test)`, 'success');
@@ -233,6 +278,57 @@ function loadSampleData() {
     // Update UI
     updateUIState('dataLoaded');
     showOverview();
+}
+
+// ============================================
+// UI STATE MANAGEMENT
+// ============================================
+/**
+ * Update UI state based on current data status
+ */
+function updateUIState(state) {
+    switch (state) {
+        case 'initial':
+            // Disable all analysis buttons initially
+            dom.togglePreviewBtn.classList.add('hidden');
+            dom.runStatsBtn.classList.add('hidden');
+            dom.generateVisualsBtn.classList.add('hidden');
+            dom.exportCsvBtn.disabled = true;
+            dom.exportJsonBtn.disabled = true;
+            break;
+            
+        case 'dataLoaded':
+            // Enable analysis buttons when data is loaded
+            dom.togglePreviewBtn.classList.remove('hidden');
+            dom.runStatsBtn.classList.remove('hidden');
+            dom.generateVisualsBtn.classList.remove('hidden');
+            dom.exportCsvBtn.disabled = false;
+            dom.exportJsonBtn.disabled = false;
+            
+            // Automatically run missing values analysis
+            setTimeout(() => {
+                analyzeMissingValues();
+                calculateStatistics();
+                generateVisualizations();
+            }, 500);
+            break;
+    }
+}
+
+/**
+ * Show message with styling
+ */
+function showMessage(element, text, type = 'info') {
+    element.textContent = text;
+    element.className = type; // 'info', 'success', 'warning'
+    element.classList.remove('hidden');
+    
+    // Auto-hide info messages after 5 seconds
+    if (type === 'info') {
+        setTimeout(() => {
+            element.classList.add('hidden');
+        }, 5000);
+    }
 }
 
 // ============================================
@@ -285,7 +381,14 @@ function showDataPreview() {
         html += '<tr>';
         columns.forEach(col => {
             const value = row[col];
-            html += `<td>${value === null || value === undefined ? '<em>null</em>' : value}</td>`;
+            // Handle different value types
+            if (value === null || value === undefined) {
+                html += '<td><em style="color: #999;">null</em></td>';
+            } else if (typeof value === 'number') {
+                html += `<td>${value.toFixed(2)}</td>`;
+            } else {
+                html += `<td>${value}</td>`;
+            }
         });
         html += '</tr>';
     });
@@ -315,7 +418,8 @@ function analyzeMissingValues() {
     const columnsToCheck = [...DATA_SCHEMA.featureColumns, DATA_SCHEMA.targetColumn];
     const missingStats = columnsToCheck.map(col => {
         const missingCount = mergedData.filter(row => 
-            row[col] === null || row[col] === undefined || row[col] === ''
+            row[col] === null || row[col] === undefined || row[col] === '' || 
+            (typeof row[col] === 'number' && isNaN(row[col]))
         ).length;
         const missingPercent = (missingCount / mergedData.length) * 100;
         
@@ -357,13 +461,13 @@ function createMissingValuesChart(missingStats) {
                 label: 'Missing Values (%)',
                 data: missingStats.map(stat => parseFloat(stat.missingPercent)),
                 backgroundColor: missingStats.map(stat => 
-                    stat.missingPercent > 20 ? 'rgba(231, 76, 60, 0.7)' :
-                    stat.missingPercent > 5 ? 'rgba(241, 196, 15, 0.7)' :
+                    parseFloat(stat.missingPercent) > 20 ? 'rgba(231, 76, 60, 0.7)' :
+                    parseFloat(stat.missingPercent) > 5 ? 'rgba(241, 196, 15, 0.7)' :
                     'rgba(46, 204, 113, 0.7)'
                 ),
                 borderColor: missingStats.map(stat => 
-                    stat.missingPercent > 20 ? 'rgb(231, 76, 60)' :
-                    stat.missingPercent > 5 ? 'rgb(241, 196, 15)' :
+                    parseFloat(stat.missingPercent) > 20 ? 'rgb(231, 76, 60)' :
+                    parseFloat(stat.missingPercent) > 5 ? 'rgb(241, 196, 15)' :
                     'rgb(46, 204, 113)'
                 ),
                 borderWidth: 1
@@ -380,6 +484,12 @@ function createMissingValuesChart(missingStats) {
                         display: true,
                         text: 'Percentage Missing (%)'
                     }
+                },
+                x: {
+                    ticks: {
+                        autoSkip: false,
+                        maxRotation: 45
+                    }
                 }
             },
             plugins: {
@@ -390,6 +500,9 @@ function createMissingValuesChart(missingStats) {
                             return `${stat.missingPercent}% (${stat.missingCount} of ${mergedData.length} records)`;
                         }
                     }
+                },
+                legend: {
+                    display: false
                 }
             }
         }
@@ -404,15 +517,22 @@ function createMissingValuesTable(missingStats) {
     html += '<th>Column</th><th>Type</th><th>Missing Count</th><th>Missing %</th><th>Status</th></tr></thead><tbody>';
     
     missingStats.forEach(stat => {
-        let statusClass = 'success';
-        let statusText = 'Good';
+        const missingPercentNum = parseFloat(stat.missingPercent);
+        let statusClass = '';
+        let statusText = '';
         
-        if (stat.missingPercent > 20) {
-            statusClass = 'warning';
-            statusText = 'High';
-        } else if (stat.missingPercent > 5) {
+        if (missingPercentNum === 0) {
+            statusClass = 'success';
+            statusText = 'Complete';
+        } else if (missingPercentNum <= 5) {
+            statusClass = 'success';
+            statusText = 'Good';
+        } else if (missingPercentNum <= 20) {
             statusClass = 'warning';
             statusText = 'Moderate';
+        } else {
+            statusClass = 'warning';
+            statusText = 'High';
         }
         
         html += `<tr>
@@ -460,7 +580,7 @@ function calculateNumericStats() {
     DATA_SCHEMA.numericFeatures.forEach(feature => {
         const values = mergedData
             .map(row => row[feature])
-            .filter(val => val !== null && val !== undefined && !isNaN(val));
+            .filter(val => val !== null && val !== undefined && !isNaN(val) && typeof val === 'number');
         
         if (values.length === 0) {
             numericStats[feature] = { count: 0, message: 'No valid numeric values' };
@@ -529,7 +649,7 @@ function calculateCategoricalStats() {
     DATA_SCHEMA.categoricalFeatures.forEach(feature => {
         const values = mergedData
             .map(row => row[feature])
-            .filter(val => val !== null && val !== undefined && val !== '');
+            .filter(val => val !== null && val !== undefined && val !== '' && !isNaN(val));
         
         if (values.length === 0) {
             categoricalStats[feature] = { count: 0, message: 'No valid categorical values' };
@@ -539,7 +659,8 @@ function calculateCategoricalStats() {
         // Count frequencies
         const frequency = {};
         values.forEach(val => {
-            frequency[val] = (frequency[val] || 0) + 1;
+            const key = String(val);
+            frequency[key] = (frequency[key] || 0) + 1;
         });
         
         // Convert to array and sort by frequency
@@ -560,4 +681,249 @@ function calculateCategoricalStats() {
     
     Object.entries(categoricalStats).forEach(([feature, stats]) => {
         if (stats.message) {
-            html += `<div class="stat-box"><h4>${feature}</h
+            html += `<div class="stat-box"><h4>${feature}</h4><p>${stats.message}</p></div>`;
+        } else {
+            html += `<div class="stat-box">
+                <h4>${feature}</h4>
+                <p><strong>Valid Values:</strong> ${stats.count} | <strong>Missing:</strong> ${stats.missing}</p>
+                <p><strong>Unique Categories:</strong> ${stats.unique}</p>
+                <table class="data-table" style="margin-top: 10px;">
+                    <thead><tr><th>Value</th><th>Count</th><th>%</th></tr></thead>
+                    <tbody>`;
+            
+            stats.frequencies.forEach(freq => {
+                html += `<tr>
+                    <td>${freq.value}</td>
+                    <td>${freq.count}</td>
+                    <td>${freq.percent}%</td>
+                </tr>`;
+            });
+            
+            html += '</tbody></table></div>';
+        }
+    });
+    
+    dom.categoricalStatsContainer.innerHTML = html;
+    dom.categoricalStatsContainer.classList.remove('hidden');
+}
+
+/**
+ * Calculate survival statistics from train data only
+ */
+function calculateSurvivalStats() {
+    if (!trainData || trainData.length === 0) return;
+    
+    // Filter only train data with valid Survived values
+    const validTrainData = trainData.filter(row => 
+        row[DATA_SCHEMA.targetColumn] !== null && 
+        row[DATA_SCHEMA.targetColumn] !== undefined
+    );
+    
+    if (validTrainData.length === 0) {
+        dom.survivalStatsContainer.innerHTML = '<p>No survival data available in train set.</p>';
+        dom.survivalStatsContainer.classList.remove('hidden');
+        return;
+    }
+    
+    // Overall survival
+    const total = validTrainData.length;
+    const survived = validTrainData.filter(row => row[DATA_SCHEMA.targetColumn] === 1).length;
+    const notSurvived = validTrainData.filter(row => row[DATA_SCHEMA.targetColumn] === 0).length;
+    const survivalRate = (survived / total * 100).toFixed(1);
+    
+    // Survival by sex
+    const maleSurvived = validTrainData.filter(row => 
+        row.Sex === 'male' && row[DATA_SCHEMA.targetColumn] === 1
+    ).length;
+    const maleTotal = validTrainData.filter(row => row.Sex === 'male').length;
+    const maleRate = maleTotal > 0 ? (maleSurvived / maleTotal * 100).toFixed(1) : 'N/A';
+    
+    const femaleSurvived = validTrainData.filter(row => 
+        row.Sex === 'female' && row[DATA_SCHEMA.targetColumn] === 1
+    ).length;
+    const femaleTotal = validTrainData.filter(row => row.Sex === 'female').length;
+    const femaleRate = femaleTotal > 0 ? (femaleSurvived / femaleTotal * 100).toFixed(1) : 'N/A';
+    
+    // Survival by class
+    const survivalByClass = {};
+    [1, 2, 3].forEach(pclass => {
+        const classData = validTrainData.filter(row => row.Pclass === pclass);
+        const classSurvived = classData.filter(row => row[DATA_SCHEMA.targetColumn] === 1).length;
+        survivalByClass[pclass] = {
+            total: classData.length,
+            survived: classSurvived,
+            rate: classData.length > 0 ? (classSurvived / classData.length * 100).toFixed(1) : 'N/A'
+        };
+    });
+    
+    // Display survival stats
+    let html = `<h3>Survival Analysis (Train Data Only)</h3>
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <h4>Overall Survival</h4>
+                        <div class="stat-value">${survivalRate}%</div>
+                        <p>${survived} survived / ${total} total</p>
+                    </div>
+                    <div class="stat-box">
+                        <h4>Male Survival</h4>
+                        <div class="stat-value">${maleRate}%</div>
+                        <p>${maleSurvived} survived / ${maleTotal} total</p>
+                    </div>
+                    <div class="stat-box">
+                        <h4>Female Survival</h4>
+                        <div class="stat-value">${femaleRate}%</div>
+                        <p>${femaleSurvived} survived / ${femaleTotal} total</p>
+                    </div>
+                </div>
+                <h4 style="margin-top: 20px;">Survival by Passenger Class</h4>
+                <table class="data-table">
+                    <thead><tr><th>Class</th><th>Total</th><th>Survived</th><th>Survival Rate</th></tr></thead>
+                    <tbody>`;
+    
+    [1, 2, 3].forEach(pclass => {
+        const stats = survivalByClass[pclass];
+        html += `<tr>
+            <td>${pclass}</td>
+            <td>${stats.total}</td>
+            <td>${stats.survived}</td>
+            <td>${stats.rate}%</td>
+        </tr>`;
+    });
+    
+    html += '</tbody></table>';
+    
+    dom.survivalStatsContainer.innerHTML = html;
+    dom.survivalStatsContainer.classList.remove('hidden');
+}
+
+// ============================================
+// VISUALIZATIONS
+// ============================================
+/**
+ * Generate all visualizations
+ */
+function generateVisualizations() {
+    if (!mergedData || mergedData.length === 0) return;
+    
+    // Show visualizations content
+    dom.visualizationsContent.classList.remove('hidden');
+    dom.visualizationsPlaceholder.classList.add('hidden');
+    
+    // Generate individual visualizations
+    createSexChart();
+    createPclassChart();
+    createEmbarkedChart();
+    createAgeHistogram();
+    createFareHistogram();
+    createCorrelationHeatmap();
+}
+
+/**
+ * Create chart for Sex distribution
+ */
+function createSexChart() {
+    if (charts.sexChart) charts.sexChart.destroy();
+    
+    const sexCounts = { male: 0, female: 0 };
+    mergedData.forEach(row => {
+        if (row.Sex === 'male') sexCounts.male++;
+        else if (row.Sex === 'female') sexCounts.female++;
+    });
+    
+    const ctx = dom.sexChart.getContext('2d');
+    charts.sexChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: ['Male', 'Female'],
+            datasets: [{
+                label: 'Passengers',
+                data: [sexCounts.male, sexCounts.female],
+                backgroundColor: ['rgba(54, 162, 235, 0.7)', 'rgba(255, 99, 132, 0.7)'],
+                borderColor: ['rgb(54, 162, 235)', 'rgb(255, 99, 132)'],
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Passenger Gender Distribution'
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Create chart for Pclass distribution
+ */
+function createPclassChart() {
+    if (charts.pclassChart) charts.pclassChart.destroy();
+    
+    const pclassCounts = { 1: 0, 2: 0, 3: 0 };
+    mergedData.forEach(row => {
+        if ([1, 2, 3].includes(row.Pclass)) {
+            pclassCounts[row.Pclass]++;
+        }
+    });
+    
+    const ctx = dom.pclassChart.getContext('2d');
+    charts.pclassChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: ['1st Class', '2nd Class', '3rd Class'],
+            datasets: [{
+                label: 'Passengers',
+                data: [pclassCounts[1], pclassCounts[2], pclassCounts[3]],
+                backgroundColor: ['rgba(255, 159, 64, 0.7)', 'rgba(75, 192, 192, 0.7)', 'rgba(153, 102, 255, 0.7)'],
+                borderColor: ['rgb(255, 159, 64)', 'rgb(75, 192, 192)', 'rgb(153, 102, 255)'],
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Passenger Class Distribution'
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Create chart for Embarked distribution
+ */
+function createEmbarkedChart() {
+    if (charts.embarkedChart) charts.embarkedChart.destroy();
+    
+    const embarkedCounts = { C: 0, Q: 0, S: 0, Unknown: 0 };
+    mergedData.forEach(row => {
+        if (row.Embarked === 'C') embarkedCounts.C++;
+        else if (row.Embarked === 'Q') embarkedCounts.Q++;
+        else if (row.Embarked === 'S') embarkedCounts.S++;
+        else embarkedCounts.Unknown++;
+    });
+    
+    const ctx = dom.embarkedChart.getContext('2d');
+    charts.embarkedChart = new Chart(ctx, {
+        type: 'pie',
+        data: {
+            labels: ['Cherbourg (C)', 'Queenstown (Q)', 'Southampton (S)', 'Unknown'],
+            datasets: [{
+                label: 'Passengers',
+                data: [embarkedCounts.C, embarkedCounts.Q, embarkedCounts.S, embarkedCounts.Unknown],
+                backgroundColor: [
+                    'rgba(255, 99, 132, 0.7)',
+                    'rgba(54, 162, 235, 0.7)',
+                    'rgba(255, 205, 86, 0.7)',
+                    'rgba(201, 203, 207, 0.7)'
+                ],
+                borderWidth: 1
+            }]
+        },
+        options
