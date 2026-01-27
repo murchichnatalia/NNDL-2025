@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Titanic Dataset EDA Explorer</title>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- PapaParse -->
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background-color: #f5f7fa;
+            color: #333;
+            line-height: 1.6;
+            padding: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #3498db;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #7f8c8d;
+            font-size: 1.1rem;
+        }
+        
+        .deployment-note {
+            background-color: #e8f4fc;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 0 5px 5px 0;
+            font-size: 0.9rem;
+        }
+        
+        .deployment-note h3 {
+            color: #2980b9;
+            margin-bottom: 8px;
+        }
+        
+        section {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            transition: transform 0.2s;
+        }
+        
+        section:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.08);
+        }
+        
+        h2 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #ecf0f1;
+        }
+        
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        button, .file-input-label {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.2s;
+            margin: 5px;
+            display: inline-block;
+            text-align: center;
+        }
+        
+        button:hover, .file-input-label:hover {
+            background-color: #2980b9;
+        }
+        
+        button:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+        
+        .file-input-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .file-input-wrapper {
+            flex: 1;
+            min-width: 250px;
+        }
+        
+        input[type="file"] {
+            display: none;
+        }
+        
+        .file-status {
+            margin-top: 5px;
+            font-size: 0.9rem;
+            color: #7f8c8d;
+        }
+        
+        .file-status.loaded {
+            color: #27ae60;
+        }
+        
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin: 20px 0;
+        }
+        
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            overflow-x: auto;
+            display: block;
+        }
+        
+        .data-table th, .data-table td {
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            text-align: left;
+        }
+        
+        .data-table th {
+            background-color: #f2f6fa;
+            font-weight: 600;
+        }
+        
+        .data-table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 15px;
+        }
+        
+        .stat-box {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #3498db;
+        }
+        
+        .stat-box h4 {
+            margin-bottom: 10px;
+            color: #2c3e50;
+        }
+        
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #2980b9;
+        }
+        
+        .warning {
+            color: #e74c3c;
+            background-color: #fdf2f2;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        
+        .success {
+            color: #27ae60;
+            background-color: #f0f9f4;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #ecf0f1;
+            color: #7f8c8d;
+            font-size: 0.9rem;
+        }
+        
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+            
+            section {
+                padding: 15px;
+            }
+            
+            .file-input-wrapper {
+                min-width: 100%;
+            }
+            
+            .controls {
+                flex-direction: column;
+            }
+            
+            button, .file-input-label {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🚢 Titanic Dataset EDA Explorer</h1>
+        <p class="subtitle">Interactive Exploratory Data Analysis for Kaggle Titanic Dataset</p>
+    </header>
+    
+    <!-- Deployment instructions for GitHub Pages -->
+    <div class="deployment-note">
+        <h3>📋 Deployment Note</h3>
+        <p>To deploy: Create a public GitHub repository, commit index.html and app.js, enable GitHub Pages (main branch, root folder), and test the provided URL.</p>
+    </div>
+    
+    <!-- Section 1: Data Load -->
+    <section id="data-load">
+        <h2 class="section-header">
+            <span>1. Data Load</span>
+        </h2>
+        <p>Upload train.csv and test.csv files from Kaggle Titanic dataset. The app will merge them for analysis.</p>
+        
+        <div class="file-input-container">
+            <div class="file-input-wrapper">
+                <label for="train-file" class="file-input-label">📁 Upload train.csv</label>
+                <input type="file" id="train-file" accept=".csv">
+                <div id="train-status" class="file-status">No file selected</div>
+            </div>
+            
+            <div class="file-input-wrapper">
+                <label for="test-file" class="file-input-label">📁 Upload test.csv</label>
+                <input type="file" id="test-file" accept=".csv">
+                <div id="test-status" class="file-status">No file selected</div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button id="load-data-btn">Load & Merge Data</button>
+            <button id="use-sample-btn" title="Use sample data for demonstration">Use Sample Data</button>
+        </div>
+        
+        <div id="data-load-message" class="hidden"></div>
+    </section>
+    
+    <!-- Section 2: Merge & Overview -->
+    <section id="overview">
+        <h2 class="section-header">
+            <span>2. Merge & Overview</span>
+            <button id="toggle-preview-btn" class="hidden">Toggle Data Preview</button>
+        </h2>
+        <div id="overview-content" class="hidden">
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <h4>Total Passengers</h4>
+                    <div id="total-passengers" class="stat-value">-</div>
+                </div>
+                <div class="stat-box">
+                    <h4>Training Samples</h4>
+                    <div id="train-samples" class="stat-value">-</div>
+                </div>
+                <div class="stat-box">
+                    <h4>Test Samples</h4>
+                    <div id="test-samples" class="stat-value">-</div>
+                </div>
+                <div class="stat-box">
+                    <h4>Features</h4>
+                    <div id="feature-count" class="stat-value">-</div>
+                </div>
+            </div>
+            
+            <div id="data-preview-container" class="hidden">
+                <h3>Data Preview (First 10 Rows)</h3>
+                <div class="data-table-container">
+                    <table id="data-preview" class="data-table">
+                        <!-- Preview will be inserted here -->
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div id="overview-placeholder">
+            <p>Load data to see overview statistics and preview.</p>
+        </div>
+    </section>
+    
+    <!-- Section 3: Missing Values -->
+    <section id="missing-values">
+        <h2>3. Missing Values Analysis</h2>
+        <div id="missing-values-content" class="hidden">
+            <div class="chart-container">
+                <canvas id="missing-values-chart"></canvas>
+            </div>
+            <div id="missing-values-table-container">
+                <!-- Table will be inserted here -->
+            </div>
+        </div>
+        <div id="missing-values-placeholder">
+            <p>Load data to analyze missing values.</p>
+        </div>
+    </section>
+    
+    <!-- Section 4: Stats Summary -->
+    <section id="stats-summary">
+        <h2 class="section-header">
+            <span>4. Statistical Summary</span>
+            <button id="run-stats-btn" class="hidden">Calculate Statistics</button>
+        </h2>
+        <div id="stats-summary-content" class="hidden">
+            <div id="numeric-stats-container">
+                <!-- Numeric stats will be inserted here -->
+            </div>
+            <div id="categorical-stats-container" class="hidden">
+                <!-- Categorical stats will be inserted here -->
+            </div>
+            <div id="survival-stats-container" class="hidden">
+                <!-- Survival stats will be inserted here -->
+            </div>
+        </div>
+        <div id="stats-summary-placeholder">
+            <p>Load data to calculate statistical summaries.</p>
+        </div>
+    </section>
+    
+    <!-- Section 5: Visualizations -->
+    <section id="visualizations">
+        <h2 class="section-header">
+            <span>5. Visualizations</span>
+            <button id="generate-visuals-btn" class="hidden">Generate Visualizations</button>
+        </h2>
+        <div id="visualizations-content" class="hidden">
+            <div class="chart-row">
+                <h3>Categorical Features</h3>
+                <div class="chart-container">
+                    <canvas id="sex-chart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <canvas id="pclass-chart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <canvas id="embarked-chart"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-row">
+                <h3>Numeric Features</h3>
+                <div class="chart-container">
+                    <canvas id="age-chart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <canvas id="fare-chart"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-row">
+                <h3>Correlation Heatmap (Numeric Features)</h3>
+                <div class="chart-container">
+                    <canvas id="correlation-chart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div id="visualizations-placeholder">
+            <p>Load data to generate visualizations.</p>
+        </div>
+    </section>
+    
+    <!-- Section 6: Export -->
+    <section id="export">
+        <h2>6. Export Results</h2>
+        <div class="controls">
+            <button id="export-csv-btn" disabled>Download Merged CSV</button>
+            <button id="export-json-btn" disabled>Download JSON Summary</button>
+        </div>
+        <div id="export-message" class="hidden"></div>
+    </section>
+    
+    <footer>
+        <p>Titanic Dataset EDA Explorer | Built for Kaggle Titanic Dataset Analysis</p>
+        <p>Data Source: <a href="https://www.kaggle.com/competitions/titanic/data" target="_blank">Kaggle Titanic Dataset</a></p>
+        <p>Libraries: PapaParse (CSV parsing), Chart.js (visualizations)</p>
+        <p>Note: All processing runs client-side in your browser.</p>
+    </footer>
+    
+    <!-- Link to the JavaScript file -->
+    <script src="app.js"></script>
+</body>
+</html>
