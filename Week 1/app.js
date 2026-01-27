@@ -36,40 +36,17 @@ const DATA_URLS = {
 function init() {
     // Event listeners
     loadDataBtn.addEventListener('click', loadAndMergeData);
-    loadDataBtn.addEventListener('click', loadDataFromGitHub); // New option
+    document.getElementById('loadFromGitHubBtn').addEventListener('click', loadDataFromGitHub);
+    document.getElementById('loadSampleBtn').addEventListener('click', loadSampleData);
     runEDABtn.addEventListener('click', runFullEDA);
     exportCSVBtn.addEventListener('click', exportMergedCSV);
     exportJSONBtn.addEventListener('click', exportSummaryJSON);
-    
-    // Add auto-load buttons
-    addAutoLoadButtons();
     
     // Disable EDA button initially
     runEDABtn.disabled = true;
     runEDABtn.style.opacity = '0.6';
     
     console.log('Titanic EDA Dashboard initialized');
-}
-
-/**
- * Add buttons for auto-loading from GitHub
- */
-function addAutoLoadButtons() {
-    const loadSection = document.querySelector('.button-group');
-    const autoLoadHTML = `
-        <button class="btn-primary" id="loadFromGitHubBtn">
-            🌐 Load from GitHub (Auto)
-        </button>
-        <button class="btn-secondary" id="loadSampleBtn">
-            🧪 Load Sample Data
-        </button>
-    `;
-    
-    loadSection.insertAdjacentHTML('afterend', autoLoadHTML);
-    
-    // Add event listeners for new buttons
-    document.getElementById('loadFromGitHubBtn').addEventListener('click', loadDataFromGitHub);
-    document.getElementById('loadSampleBtn').addEventListener('click', loadSampleData);
 }
 
 /**
@@ -100,7 +77,7 @@ async function loadDataFromGitHub() {
         runEDABtn.style.opacity = '1';
         
         hideLoading();
-        showSuccess('Data loaded successfully from GitHub!');
+        showSuccess('Data loaded successfully from GitHub! Click "Run Full EDA Analysis"');
         
         console.log('Data loaded from GitHub:', {
             train: trainData.length,
@@ -112,10 +89,6 @@ async function loadDataFromGitHub() {
         hideLoading();
         showError(`Error loading from GitHub: ${error.message}`);
         console.error('GitHub load error:', error);
-        
-        // Fallback to sample data
-        alert('GitHub load failed. Loading sample data instead...');
-        loadSampleData();
     }
 }
 
@@ -463,139 +436,659 @@ function runFullEDA() {
     }, 100);
 }
 
-// ... [ОСТАЛЬНАЯ ЧАСТЬ КОДА БЕЗ ИЗМЕНЕНИЙ - функции analyzeMissingValues, calculateStatistics, createVisualizations и т.д.] ...
+/**
+ * Analyze missing values
+ */
+function analyzeMissingValues() {
+    const missingInfo = document.getElementById('missingInfo');
+    const columns = Object.keys(mergedData[0]);
+    
+    // Calculate missing percentages
+    const missingStats = columns.map(col => {
+        const total = mergedData.length;
+        const missing = mergedData.filter(row => 
+            row[col] === null || 
+            row[col] === undefined || 
+            row[col] === '' || 
+            (typeof row[col] === 'number' && isNaN(row[col]))
+        ).length;
+        
+        return {
+            column: col,
+            missing: missing,
+            percentage: (missing / total * 100).toFixed(1)
+        };
+    });
+    
+    // Display missing values info
+    missingInfo.innerHTML = `
+        <h4>Missing Values Summary</h4>
+        <p>Total rows: ${mergedData.length}</p>
+        <div class="stats-grid">
+            ${missingStats.map(stat => `
+                <div class="stat-box">
+                    <h4>${stat.column}</h4>
+                    <p>Missing: ${stat.missing} (${stat.percentage}%)</p>
+                </div>
+            `).join('')}
+        </div>
+    `;
+    
+    // Create bar chart for missing values
+    createMissingValuesChart(missingStats);
+}
+
+/**
+ * Create missing values chart
+ */
+function createMissingValuesChart(missingStats) {
+    const ctx = document.getElementById('missingValuesChart').getContext('2d');
+    
+    // Destroy existing chart if it exists
+    if (charts.missingValues) {
+        charts.missingValues.destroy();
+    }
+    
+    const labels = missingStats.map(stat => stat.column);
+    const data = missingStats.map(stat => parseFloat(stat.percentage));
+    
+    charts.missingValues = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Missing Values (%)',
+                data: data,
+                backgroundColor: data.map(pct => 
+                    pct > 50 ? '#e74c3c' : 
+                    pct > 20 ? '#f39c12' : 
+                    pct > 5 ? '#f1c40f' : '#2ecc71'
+                ),
+                borderColor: '#34495e',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Percentage of Missing Values by Column'
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (context) => `${context.parsed.y}% missing`
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: {
+                        display: true,
+                        text: 'Percentage (%)'
+                    }
+                },
+                x: {
+                    ticks: {
+                        maxRotation: 45
+                    }
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Calculate statistical summaries
+ */
+function calculateStatistics() {
+    const statsContainer = document.getElementById('statsContainer');
+    
+    // Get only train data for survival analysis
+    const trainOnly = mergedData.filter(row => row.Source === 'train');
+    
+    // Numeric columns to analyze
+    const numericCols = ['Age', 'Fare', 'SibSp', 'Parch'];
+    const categoricalCols = ['Pclass', 'Sex', 'Embarked'];
+    
+    // Calculate overall statistics
+    const numericStats = numericCols.map(col => {
+        const values = trainOnly.map(row => row[col]).filter(val => val !== null && !isNaN(val));
+        return {
+            column: col,
+            mean: values.length ? (values.reduce((a, b) => a + b, 0) / values.length).toFixed(2) : 'N/A',
+            median: values.length ? calculateMedian(values) : 'N/A',
+            std: values.length ? calculateStdDev(values).toFixed(2) : 'N/A',
+            min: values.length ? Math.min(...values).toFixed(2) : 'N/A',
+            max: values.length ? Math.max(...values).toFixed(2) : 'N/A'
+        };
+    });
+    
+    // Calculate survival rates by category
+    const survivalBySex = calculateSurvivalRate(trainOnly, 'Sex');
+    const survivalByClass = calculateSurvivalRate(trainOnly, 'Pclass');
+    const survivalByEmbarked = calculateSurvivalRate(trainOnly, 'Embarked');
+    
+    // Display statistics
+    statsContainer.innerHTML = `
+        <div class="stat-box">
+            <h4>Overall Survival</h4>
+            <p>Total: ${trainOnly.length}</p>
+            <p>Survived: ${trainOnly.filter(r => r.Survived === 1).length}</p>
+            <p>Died: ${trainOnly.filter(r => r.Survived === 0).length}</p>
+            <p>Survival Rate: ${(trainOnly.filter(r => r.Survived === 1).length / trainOnly.length * 100).toFixed(1)}%</p>
+        </div>
+        
+        <div class="stat-box">
+            <h4>Survival by Sex</h4>
+            ${Object.entries(survivalBySex).map(([sex, rate]) => `
+                <p>${sex}: ${(rate * 100).toFixed(1)}% survived</p>
+            `).join('')}
+        </div>
+        
+        <div class="stat-box">
+            <h4>Survival by Class</h4>
+            ${Object.entries(survivalByClass).map(([pclass, rate]) => `
+                <p>Class ${pclass}: ${(rate * 100).toFixed(1)}% survived</p>
+            `).join('')}
+        </div>
+        
+        <div class="stat-box">
+            <h4>Numeric Statistics</h4>
+            ${numericStats.map(stat => `
+                <p><strong>${stat.column}:</strong> 
+                Mean=${stat.mean}, Median=${stat.median}, Std=${stat.std}</p>
+            `).join('')}
+        </div>
+    `;
+}
+
+/**
+ * Calculate median of an array
+ */
+function calculateMedian(values) {
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 !== 0 ? 
+        sorted[mid].toFixed(2) : 
+        ((sorted[mid - 1] + sorted[mid]) / 2).toFixed(2);
+}
+
+/**
+ * Calculate standard deviation
+ */
+function calculateStdDev(values) {
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    const squaredDiffs = values.map(val => Math.pow(val - mean, 2));
+    const avgSquaredDiff = squaredDiffs.reduce((a, b) => a + b, 0) / values.length;
+    return Math.sqrt(avgSquaredDiff);
+}
+
+/**
+ * Calculate survival rate by category
+ */
+function calculateSurvivalRate(data, column) {
+    const groups = {};
+    
+    // Group data by column value
+    data.forEach(row => {
+        if (row[column] !== null && row.Survived !== null) {
+            const key = row[column];
+            if (!groups[key]) {
+                groups[key] = { total: 0, survived: 0 };
+            }
+            groups[key].total++;
+            if (row.Survived === 1) {
+                groups[key].survived++;
+            }
+        }
+    });
+    
+    // Calculate rates
+    const rates = {};
+    Object.entries(groups).forEach(([key, stats]) => {
+        rates[key] = stats.survived / stats.total;
+    });
+    
+    return rates;
+}
+
+/**
+ * Create all visualizations
+ */
+function createVisualizations() {
+    const trainOnly = mergedData.filter(row => row.Source === 'train');
+    
+    // Create individual charts
+    createSexChart(trainOnly);
+    createClassChart(trainOnly);
+    createAgeChart(trainOnly);
+    createFareChart(trainOnly);
+    createEmbarkedChart(trainOnly);
+    createCorrelationChart(trainOnly);
+}
+
+/**
+ * Create sex survival chart
+ */
+function createSexChart(data) {
+    const ctx = document.getElementById('sexChart').getContext('2d');
+    const survivalRates = calculateSurvivalRate(data, 'Sex');
+    
+    if (charts.sexChart) charts.sexChart.destroy();
+    
+    charts.sexChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: Object.keys(survivalRates),
+            datasets: [{
+                label: 'Survival Rate',
+                data: Object.values(survivalRates).map(rate => rate * 100),
+                backgroundColor: ['#3498db', '#e74c3c'],
+                borderColor: '#2c3e50',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Survival Rate by Gender'
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (context) => `${context.parsed.y.toFixed(1)}% survived`
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: {
+                        display: true,
+                        text: 'Survival Rate (%)'
+                    }
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Create class survival chart
+ */
+function createClassChart(data) {
+    const ctx = document.getElementById('classChart').getContext('2d');
+    const survivalRates = calculateSurvivalRate(data, 'Pclass');
+    
+    // Sort by class
+    const labels = Object.keys(survivalRates).sort();
+    const rates = labels.map(label => survivalRates[label] * 100);
+    
+    if (charts.classChart) charts.classChart.destroy();
+    
+    charts.classChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels.map(c => `Class ${c}`),
+            datasets: [{
+                label: 'Survival Rate',
+                data: rates,
+                backgroundColor: ['#2ecc71', '#3498db', '#e74c3c'],
+                borderColor: '#2c3e50',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Survival Rate by Passenger Class'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: {
+                        display: true,
+                        text: 'Survival Rate (%)'
+                    }
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Create age distribution chart
+ */
+function createAgeChart(data) {
+    const ctx = document.getElementById('ageChart').getContext('2d');
+    
+    // Filter out null ages and separate by survival
+    const survivedAges = data.filter(row => row.Survived === 1 && row.Age !== null).map(row => row.Age);
+    const diedAges = data.filter(row => row.Survived === 0 && row.Age !== null).map(row => row.Age);
+    
+    // Create age bins
+    const ageBins = [0, 10, 20, 30, 40, 50, 60, 70, 80];
+    
+    // Count ages in bins for survived
+    const survivedCounts = new Array(ageBins.length - 1).fill(0);
+    survivedAges.forEach(age => {
+        for (let i = 0; i < ageBins.length - 1; i++) {
+            if (age >= ageBins[i] && age < ageBins[i + 1]) {
+                survivedCounts[i]++;
+                break;
+            }
+        }
+    });
+    
+    // Count ages in bins for died
+    const diedCounts = new Array(ageBins.length - 1).fill(0);
+    diedAges.forEach(age => {
+        for (let i = 0; i < ageBins.length - 1; i++) {
+            if (age >= ageBins[i] && age < ageBins[i + 1]) {
+                diedCounts[i]++;
+                break;
+            }
+        }
+    });
+    
+    // Create labels for bins
+    const binLabels = [];
+    for (let i = 0; i < ageBins.length - 1; i++) {
+        binLabels.push(`${ageBins[i]}-${ageBins[i + 1]}`);
+    }
+    
+    if (charts.ageChart) charts.ageChart.destroy();
+    
+    charts.ageChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: binLabels,
+            datasets: [
+                {
+                    label: 'Survived',
+                    data: survivedCounts,
+                    backgroundColor: 'rgba(46, 204, 113, 0.7)',
+                    borderColor: '#27ae60',
+                    borderWidth: 1
+                },
+                {
+                    label: 'Died',
+                    data: diedCounts,
+                    backgroundColor: 'rgba(231, 76, 60, 0.7)',
+                    borderColor: '#c0392b',
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Age Distribution by Survival Status'
+                }
+            },
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Age Range'
+                    }
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: 'Number of Passengers'
+                    },
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Create fare distribution chart
+ */
+function createFareChart(data) {
+    const ctx = document.getElementById('fareChart').getContext('2d');
+    
+    // Filter out null fares and separate by survival
+    const survivedFares = data.filter(row => row.Survived === 1 && row.Fare !== null).map(row => row.Fare);
+    const diedFares = data.filter(row => row.Survived === 0 && row.Fare !== null).map(row => row.Fare);
+    
+    // Create fare bins
+    const fareBins = [0, 10, 20, 30, 50, 100, 200, 300, 500];
+    
+    // Count fares in bins for survived
+    const survivedCounts = new Array(fareBins.length - 1).fill(0);
+    survivedFares.forEach(fare => {
+        for (let i = 0; i < fareBins.length - 1; i++) {
+            if (fare >= fareBins[i] && fare < fareBins[i + 1]) {
+                survivedCounts[i]++;
+                break;
+            }
+        }
+    });
+    
+    // Count fares in bins for died
+    const diedCounts = new Array(fareBins.length - 1).fill(0);
+    diedFares.forEach(fare => {
+        for (let i = 0; i < fareBins.length - 1; i++) {
+            if (fare >= fareBins[i] && fare < fareBins[i + 1]) {
+                diedCounts[i]++;
+                break;
+            }
+        }
+    });
+    
+    // Create labels for bins
+    const binLabels = [];
+    for (let i = 0; i < fareBins.length - 1; i++) {
+        binLabels.push(`$${fareBins[i]}-$${fareBins[i + 1]}`);
+    }
+    
+    if (charts.fareChart) charts.fareChart.destroy();
+    
+    charts.fareChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: binLabels,
+            datasets: [
+                {
+                    label: 'Survived',
+                    data: survivedCounts,
+                    backgroundColor: 'rgba(46, 204, 113, 0.7)',
+                    borderColor: '#27ae60',
+                    borderWidth: 1
+                },
+                {
+                    label: 'Died',
+                    data: diedCounts,
+                    backgroundColor: 'rgba(231, 76, 60, 0.7)',
+                    borderColor: '#c0392b',
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Fare Distribution by Survival Status'
+                }
+            },
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Fare Range ($)'
+                    },
+                    ticks: {
+                        maxRotation: 45
+                    }
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: 'Number of Passengers'
+                    },
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Create embarked port chart
+ */
+function createEmbarkedChart(data) {
+    const ctx = document.getElementById('embarkedChart').getContext('2d');
+    const survivalRates = calculateSurvivalRate(data, 'Embarked');
+    
+    if (charts.embarkedChart) charts.embarkedChart.destroy();
+    
+    charts.embarkedChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: Object.keys(survivalRates).map(port => 
+                port === 'C' ? 'Cherbourg' : 
+                port === 'Q' ? 'Queenstown' : 
+                port === 'S' ? 'Southampton' : port
+            ),
+            datasets: [{
+                label: 'Survival Rate',
+                data: Object.values(survivalRates).map(rate => rate * 100),
+                backgroundColor: ['#9b59b6', '#3498db', '#2ecc71'],
+                borderColor: '#2c3e50',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Survival Rate by Embarkation Port'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: {
+                        display: true,
+                        text: 'Survival Rate (%)'
+                    }
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Create correlation heatmap
+ */
+function createCorrelationChart(data) {
+    const ctx = document.getElementById('correlationChart').getContext('2d');
+    
+    // Select numeric features for correlation
+    const numericFeatures = ['Age', 'Fare', 'SibSp', 'Parch', 'Pclass', 'Survived'];
+    const cleanData = data.filter(row => 
+        numericFeatures.every(f => row[f] !== null && !isNaN(row[f]))
+    );
+    
+    // Calculate correlation matrix
+    const correlations = [];
+    const labels = ['Age', 'Fare', 'SibSp', 'Parch', 'Pclass', 'Survived'];
+    
+    for (let i = 0; i < numericFeatures.length; i++) {
+        correlations[i] = [];
+        for (let j = 0; j < numericFeatures.length; j++) {
+            if (i === j) {
+                correlations[i][j] = 1.0;
+            } else {
+                const x = cleanData.map(row => row[numericFeatures[i]]);
+                const y = cleanData.map(row => row[numericFeatures[j]]);
+                correlations[i][j] = calculateCorrelation(x, y);
+            }
+        }
+    }
+    
+    if (charts.correlationChart) charts.correlationChart.destroy();
+    
+    charts.correlationChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Correlation with Survival',
+                data: correlations[correlations.length - 1].slice(0, -1), // Last row is correlations with Survival
+                backgroundColor: [
+                    '#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6'
+                ],
+                borderColor: '#2c3e50',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Correlation with Survival Rate'
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (context) => `Correlation: ${context.parsed.y.toFixed(3)}`
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: false,
+                    min: -1,
+                    max: 1,
+                    title: {
+                        display: true,
+                        text: 'Correlation Coefficient'
+                    }
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Calculate correlation coefficient
+ */
+function calculateCorrelation(x, y) {
+    const n = x.length;
+    const sumX = x.reduce((a, b) => a + b, 0);
+    const sumY = y.reduce((a, b) => a + b, 0);
+    const sumXY = x.reduce((sum, xi, i) => sum + xi * y[i], 0);
+    const sumX2 = x.reduce((sum, xi) => sum + xi * xi, 0);
+    const sumY2 = y.reduce((sum, yi) => sum + yi * yi, 0);
+    
+    const numerator = n * sumXY - sumX * sumY;
+    const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+    
+    return denominator === 0 ? 0 : numerator / denominator;
+}
 
 /**
  * Determine the most important survival factor
  */
 function determineKeyFactor() {
-    const trainOnly = mergedData.filter(row => row.Source === 'train');
-    const keyFactorElement = document.getElementById('keyFactor');
-    const explanationElement = document.getElementById('factorExplanation');
-    const detailsElement = document.getElementById('factorDetails');
-    
-    // Calculate survival rates by different factors
-    const sexRate = calculateSurvivalRate(trainOnly, 'Sex');
-    const classRate = calculateSurvivalRate(trainOnly, 'Pclass');
-    
-    // Calculate absolute difference in survival rates
-    const sexDiff = sexRate.female && sexRate.male ? 
-        Math.abs(sexRate.female - sexRate.male) : 0;
-    
-    // For class, calculate variance
-    const classValues = Object.values(classRate);
-    const classDiff = classValues.length ? 
-        Math.max(...classValues) - Math.min(...classValues) : 0;
-    
-    // Determine key factor
-    let keyFactor, explanation, details;
-    
-    if (sexDiff >= classDiff) {
-        keyFactor = "GENDER (SEX)";
-        explanation = "Being female was the strongest predictor of survival on the Titanic.";
-        details = `
-            <ul style="margin-top: 10px;">
-                <li><strong>Female survival rate:</strong> ${(sexRate.female * 100).toFixed(1)}%</li>
-                <li><strong>Male survival rate:</strong> ${(sexRate.male * 100).toFixed(1)}%</li>
-                <li><strong>Difference:</strong> ${(sexDiff * 100).toFixed(1)} percentage points</li>
-                <li>Women were ${(sexRate.female / sexRate.male).toFixed(1)}x more likely to survive</li>
-            </ul>
-        `;
-    } else {
-        keyFactor = "PASSENGER CLASS (PCLASS)";
-        explanation = "First-class passengers had significantly higher survival rates.";
-        details = `
-            <ul style="margin-top: 10px;">
-                ${Object.entries(classRate).map(([cls, rate]) => `
-                    <li><strong>Class ${cls} survival rate:</strong> ${(rate * 100).toFixed(1)}%</li>
-                `).join('')}
-                <li><strong>Class gap:</strong> ${(classDiff * 100).toFixed(1)} percentage points</li>
-            </ul>
-        `;
-    }
-    
-    // Update DOM
-    keyFactorElement.textContent = keyFactor;
-    explanationElement.textContent = explanation;
-    detailsElement.innerHTML = details;
-}
-
-/**
- * Export merged data as CSV
- */
-function exportMergedCSV() {
-    if (!mergedData || mergedData.length === 0) {
-        alert('No data to export');
-        return;
-    }
-    
-    try {
-        const csv = Papa.unparse(mergedData);
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        const url = URL.createObjectURL(blob);
-        
-        link.setAttribute('href', url);
-        link.setAttribute('download', 'titanic_merged_data.csv');
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        showSuccess('CSV exported successfully!');
-    } catch (error) {
-        showError(`Export failed: ${error.message}`);
-    }
-}
-
-/**
- * Export summary as JSON
- */
-function exportSummaryJSON() {
-    if (!mergedData || mergedData.length === 0) {
-        alert('No data to export');
-        return;
-    }
-    
-    try {
-        const trainOnly = mergedData.filter(row => row.Source === 'train');
-        const summary = {
-            datasetInfo: {
-                totalPassengers: mergedData.length,
-                trainPassengers: trainData.length,
-                testPassengers: testData.length,
-                features: Object.keys(mergedData[0]).length
-            },
-            survivalStats: {
-                totalSurvived: trainOnly.filter(r => r.Survived === 1).length,
-                totalDied: trainOnly.filter(r => r.Survived === 0).length,
-                survivalRate: (trainOnly.filter(r => r.Survived === 1).length / trainOnly.length * 100).toFixed(1) + '%'
-            },
-            keyFactors: {
-                sex: calculateSurvivalRate(trainOnly, 'Sex'),
-                pclass: calculateSurvivalRate(trainOnly, 'Pclass'),
-                embarked: calculateSurvivalRate(trainOnly, 'Embarked')
-            },
-            generatedAt: new Date().toISOString()
-        };
-        
-        const jsonStr = JSON.stringify(summary, null, 2);
-        const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8;' });
-        const link = document.createElement('a');
-        const url = URL.createObjectURL(blob);
-        
-        link.setAttribute('href', url);
-        link.setAttribute('download', 'titanic_analysis_summary.json');
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        showSuccess('JSON summary exported!');
-    } catch (error) {
-        showError(`Export failed: ${error.message}`);
-    }
-}
-
-// Initialize the app when DOM is loaded
-document.addEventListener('DOMContentLoaded', init);
+    const trainOnly = mergedData.filter(row => row.Source
