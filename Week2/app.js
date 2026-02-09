@@ -58,21 +58,46 @@ function readFile(file) {
     });
 }
 
-// Parse CSV text to array of objects
+// Parse CSV text to array of objects (FIXED VERSION)
 function parseCSV(csvText) {
     const lines = csvText.split('\n').filter(line => line.trim() !== '');
+    // Split headers handling potential quotes
     const headers = lines[0].split(',').map(header => header.trim());
     
     return lines.slice(1).map(line => {
-        const values = line.split(',').map(value => value.trim());
+        // FIX: Split by comma only if NOT inside quotes
+        // This regex looks for a comma that is followed by an even number of quotes
+        const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+        
         const obj = {};
         headers.forEach((header, i) => {
-            // Handle missing values (empty strings)
-            obj[header] = values[i] === '' ? null : values[i];
+            let val = values[i];
+
+            // Handle edge case if row is shorter than header
+            if (val === undefined) {
+                obj[header] = null;
+                return;
+            }
+
+            // Clean up: trim spaces and remove surrounding quotes if present
+            val = val.trim();
+            if (val.startsWith('"') && val.endsWith('"')) {
+                val = val.slice(1, -1);
+            }
             
-            // Convert numerical values to numbers if possible
-            if (!isNaN(obj[header]) && obj[header] !== null) {
-                obj[header] = parseFloat(obj[header]);
+            // Handle missing values (empty strings)
+            if (val === '') {
+                obj[header] = null;
+            } else {
+                // Try to convert to number
+                // We check if it is a finite number and not an empty string
+                const numVal = parseFloat(val);
+                if (!isNaN(numVal) && isFinite(numVal)) {
+                    obj[header] = numVal;
+                } else {
+                    // Keep as string if it's not a number
+                    obj[header] = val;
+                }
             }
         });
         return obj;
@@ -215,8 +240,8 @@ function preprocessData() {
     
     try {
         // Calculate imputation values from training data
-        const ageMedian = calculateMedian(trainData.map(row => row.Age).filter(age => age !== null));
-        const fareMedian = calculateMedian(trainData.map(row => row.Fare).filter(fare => fare !== null));
+        const ageMedian = calculateMedian(trainData.map(row => row.Age).filter(age => age !== null && typeof age === 'number'));
+        const fareMedian = calculateMedian(trainData.map(row => row.Fare).filter(fare => fare !== null && typeof fare === 'number'));
         const embarkedMode = calculateMode(trainData.map(row => row.Embarked).filter(e => e !== null));
         
         // Preprocess training data
@@ -265,13 +290,17 @@ function preprocessData() {
 // Extract features from a row with imputation and normalization
 function extractFeatures(row, ageMedian, fareMedian, embarkedMode) {
     // Impute missing values
-    const age = row.Age !== null ? row.Age : ageMedian;
-    const fare = row.Fare !== null ? row.Fare : fareMedian;
+    const age = (row.Age !== null && typeof row.Age === 'number') ? row.Age : ageMedian;
+    const fare = (row.Fare !== null && typeof row.Fare === 'number') ? row.Fare : fareMedian;
     const embarked = row.Embarked !== null ? row.Embarked : embarkedMode;
     
     // Standardize numerical features
-    const standardizedAge = (age - ageMedian) / (calculateStdDev(trainData.map(r => r.Age).filter(a => a !== null)) || 1);
-    const standardizedFare = (fare - fareMedian) / (calculateStdDev(trainData.map(r => r.Fare).filter(f => f !== null)) || 1);
+    // Helper to filter valid numbers for standard deviation calc
+    const validAges = trainData.map(r => r.Age).filter(a => a !== null && typeof a === 'number');
+    const validFares = trainData.map(r => r.Fare).filter(f => f !== null && typeof f === 'number');
+
+    const standardizedAge = (age - ageMedian) / (calculateStdDev(validAges) || 1);
+    const standardizedFare = (fare - fareMedian) / (calculateStdDev(validFares) || 1);
     
     // One-hot encode categorical features
     const pclassOneHot = oneHotEncode(row.Pclass, [1, 2, 3]); // Pclass values: 1, 2, 3
@@ -290,7 +319,7 @@ function extractFeatures(row, ageMedian, fareMedian, embarkedMode) {
     features = features.concat(pclassOneHot, sexOneHot, embarkedOneHot);
     
     // Add optional family features if enabled
-    if (document.getElementById('add-family-features').checked) {
+    if (document.getElementById('add-family-features') && document.getElementById('add-family-features').checked) {
         const familySize = (row.SibSp || 0) + (row.Parch || 0) + 1;
         const isAlone = familySize === 1 ? 1 : 0;
         features.push(familySize, isAlone);
