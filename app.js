@@ -91,84 +91,116 @@ async function loadData() {
 }
 
 // =====================================================
-// ================= PREPROCESSING =====================
+// ================= INSPECT DATA FIX ==================
 // =====================================================
 
-function preprocessData() {
+function inspectData() {
 
-    const ageValues = trainData.map(r => r.Age).filter(v => v !== null);
-    const fareValues = trainData.map(r => r.Fare).filter(v => v !== null);
-
-    const ageMedian = median(ageValues);
-    const fareMedian = median(fareValues);
-
-    const ageStd = std(ageValues);
-    const fareStd = std(fareValues);
-
-    STANDARDIZATION_STATS = { ageMedian, fareMedian, ageStd, fareStd };
-
-    const embarkedMode = mode(trainData.map(r => r.Embarked).filter(v => v));
-
-    FEATURE_NAMES = [];
-
-    function extract(row) {
-        const age = row.Age ?? ageMedian;
-        const fare = row.Fare ?? fareMedian;
-        const embarked = row.Embarked ?? embarkedMode;
-
-        const features = [];
-
-        // Standardized
-        features.push((age - ageMedian) / ageStd);
-        FEATURE_NAMES.push('Age');
-
-        features.push((fare - fareMedian) / fareStd);
-        FEATURE_NAMES.push('Fare');
-
-        features.push(row.SibSp || 0);
-        FEATURE_NAMES.push('SibSp');
-
-        features.push(row.Parch || 0);
-        FEATURE_NAMES.push('Parch');
-
-        // One-hot
-        [1,2,3].forEach(c=>{
-            features.push(row.Pclass === c ? 1 : 0);
-        });
-        FEATURE_NAMES.push('Pclass_1','Pclass_2','Pclass_3');
-
-        ['male','female'].forEach(s=>{
-            features.push(row.Sex === s ? 1 : 0);
-        });
-        FEATURE_NAMES.push('Sex_male','Sex_female');
-
-        ['C','Q','S'].forEach(e=>{
-            features.push(embarked === e ? 1 : 0);
-        });
-        FEATURE_NAMES.push('Embarked_C','Embarked_Q','Embarked_S');
-
-        return features;
+    if (!trainData || trainData.length === 0) {
+        alert("Load data first.");
+        return;
     }
 
-    const trainX = trainData.map(extract);
-    const trainY = trainData.map(r => r.Survived);
+    const previewDiv = document.getElementById('data-preview');
+    const statsDiv = document.getElementById('data-stats');
+    const chartsDiv = document.getElementById('charts');
 
-    const testX = testData.map(extract);
+    previewDiv.innerHTML = "<h3>First 5 Rows</h3>";
+    statsDiv.innerHTML = "";
+    chartsDiv.innerHTML = "";
 
-    preprocessedTrainData = {
-        features: tf.tensor2d(trainX),
-        labels: tf.tensor1d(trainY)
-    };
+    // ---------- Preview Table ----------
+    const table = document.createElement("table");
+    const headerRow = document.createElement("tr");
 
-    preprocessedTestData = {
-        features: testX,
-        passengerIds: testData.map(r => r.PassengerId)
-    };
+    Object.keys(trainData[0]).forEach(key => {
+        const th = document.createElement("th");
+        th.textContent = key;
+        headerRow.appendChild(th);
+    });
 
-    document.getElementById('preprocessing-output').innerHTML =
-        `Features shape: ${preprocessedTrainData.features.shape}`;
+    table.appendChild(headerRow);
 
-    document.getElementById('create-model-btn').disabled = false;
+    trainData.slice(0, 5).forEach(row => {
+        const tr = document.createElement("tr");
+        Object.values(row).forEach(val => {
+            const td = document.createElement("td");
+            td.textContent = val ?? "NULL";
+            tr.appendChild(td);
+        });
+        table.appendChild(tr);
+    });
+
+    previewDiv.appendChild(table);
+
+    // ---------- Dataset Shape ----------
+    const rows = trainData.length;
+    const cols = Object.keys(trainData[0]).length;
+
+    // ---------- Missing Values ----------
+    let missingHTML = "<h4>Missing % per Feature</h4><ul>";
+
+    Object.keys(trainData[0]).forEach(feature => {
+        const missing = trainData.filter(r => r[feature] === null).length;
+        const percent = ((missing / rows) * 100).toFixed(2);
+        missingHTML += `<li>${feature}: ${percent}%</li>`;
+    });
+
+    missingHTML += "</ul>";
+
+    // ---------- Survival Rate ----------
+    const survived = trainData.filter(r => r.Survived === 1).length;
+    const survivalRate = ((survived / rows) * 100).toFixed(2);
+
+    statsDiv.innerHTML = `
+        <p><strong>Shape:</strong> ${rows} rows × ${cols} columns</p>
+        <p><strong>Survival Rate:</strong> ${survivalRate}%</p>
+        ${missingHTML}
+    `;
+
+    // =====================================================
+    // =============== VISUALIZATIONS ======================
+    // =====================================================
+
+    // Survival by Sex
+    const sexStats = {};
+    trainData.forEach(r => {
+        if (!sexStats[r.Sex]) sexStats[r.Sex] = { total: 0, survived: 0 };
+        sexStats[r.Sex].total++;
+        if (r.Survived === 1) sexStats[r.Sex].survived++;
+    });
+
+    const sexChartData = Object.keys(sexStats).map(sex => ({
+        x: sex,
+        y: (sexStats[sex].survived / sexStats[sex].total) * 100
+    }));
+
+    tfvis.render.barchart(
+        { name: "Survival by Sex" },
+        sexChartData,
+        { xLabel: "Sex", yLabel: "Survival %" }
+    );
+
+    // Survival by Pclass
+    const classStats = {};
+    trainData.forEach(r => {
+        if (!classStats[r.Pclass]) classStats[r.Pclass] = { total: 0, survived: 0 };
+        classStats[r.Pclass].total++;
+        if (r.Survived === 1) classStats[r.Pclass].survived++;
+    });
+
+    const classChartData = Object.keys(classStats).map(c => ({
+        x: "Class " + c,
+        y: (classStats[c].survived / classStats[c].total) * 100
+    }));
+
+    tfvis.render.barchart(
+        { name: "Survival by Pclass" },
+        classChartData,
+        { xLabel: "Class", yLabel: "Survival %" }
+    );
+
+    document.getElementById("preprocess-btn").disabled = false;
 }
 
 // =====================================================
