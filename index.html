@@ -2,73 +2,81 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Titanic Survival Classifier - TensorFlow.js</title>
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Titanic Classifier - NNDL Homework</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
     <script src="app.js"></script>
-
     <style>
-        body { font-family: Arial; margin:20px; }
-        section { margin-bottom:25px; padding:15px; border:1px solid #ddd; }
-        button { padding:8px 12px; margin:5px; }
-        table { border-collapse: collapse; width:100%; }
-        th,td { border:1px solid #ccc; padding:6px; }
-        th { background:#f2f2f2; }
+        body { font-family: sans-serif; padding: 20px; color: #333; background: #f4f7f6; }
+        .container { max-width: 1000px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        section { margin-bottom: 25px; padding: 15px; border: 1px solid #eee; border-radius: 5px; }
+        h2 { color: #1a73e8; margin-top: 0; }
+        button { background: #1a73e8; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }
+        button:disabled { background: #ccc; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background: #f8f9fa; }
+        .slider { width: 100%; }
     </style>
 </head>
 <body>
+    <div class="container">
+        <h1>Titanic Survival Classifier (TF.js)</h1>
+        
+        <section id="data-load">
+            <h2>1. Data Load</h2>
+            <label>Train CSV: <input type="file" id="train-file" accept=".csv"></label><br><br>
+            <label>Test CSV: <input type="file" id="test-file" accept=".csv"></label><br><br>
+            <button onclick="loadData()">Load Data</button>
+            <div id="data-status"></div>
+        </section>
 
-<h1>Titanic Survival Classifier (with Sigmoid Gate)</h1>
+        <section id="inspect">
+            <h2>2. Inspection</h2>
+            <button id="inspect-btn" onclick="inspectData()" disabled>Inspect</button>
+            <div id="data-preview"></div>
+            <div id="data-stats"></div>
+        </section>
 
-<section>
-    <h2>1. Data Load</h2>
-    <input type="file" id="train-file" accept=".csv">
-    <input type="file" id="test-file" accept=".csv">
-    <button onclick="loadData()">Load Data</button>
-    <div id="data-status"></div>
-</section>
+        <section id="preprocessing">
+            <h2>3. Preprocessing</h2>
+            <label><input type="checkbox" id="add-family-features" checked> Add Family Features</label><br><br>
+            <button id="preprocess-btn" onclick="preprocessData()" disabled>Preprocess</button>
+            <div id="preprocessing-output"></div>
+        </section>
 
-<section>
-    <h2>2. Preprocess</h2>
-    <button onclick="preprocessData()" id="preprocess-btn" disabled>Preprocess</button>
-    <div id="preprocessing-output"></div>
-</section>
+        <section id="model">
+            <h2>4. Model (with Sigmoid Gate)</h2>
+            <button id="create-model-btn" onclick="createModel()" disabled>Create Model</button>
+            <div id="model-summary"></div>
+        </section>
 
-<section>
-    <h2>3. Model</h2>
-    <button onclick="createModel()" id="model-btn" disabled>Create Model</button>
-    <div id="model-summary"></div>
-</section>
+        <section id="training">
+            <h2>5. Training</h2>
+            <button id="train-btn" onclick="trainModel()" disabled>Start Training</button>
+            <div id="training-status"></div>
+        </section>
 
-<section>
-    <h2>4. Train</h2>
-    <button onclick="trainModel()" id="train-btn" disabled>Train</button>
-    <div id="training-status"></div>
-</section>
+        <section id="metrics">
+            <h2>6. Metrics & Threshold</h2>
+            <input type="range" id="threshold-slider" class="slider" min="0" max="1" step="0.01" value="0.5" disabled oninput="updateMetrics()">
+            <p>Threshold: <span id="threshold-value">0.50</span></p>
+            <div id="confusion-matrix"></div>
+            <div id="performance-metrics"></div>
+        </section>
 
-<section>
-    <h2>5. Evaluation</h2>
-    Threshold:
-    <input type="range" min="0" max="1" step="0.01" value="0.5"
-           id="threshold-slider" disabled>
-    <span id="threshold-value">0.5</span>
+        <section id="prediction">
+            <h2>7. Prediction</h2>
+            <button id="predict-btn" onclick="predict()" disabled>Run Test Prediction</button>
+            <div id="prediction-output"></div>
+        </section>
 
-    <div id="confusion-matrix"></div>
-    <div id="performance-metrics"></div>
-</section>
-
-<section>
-    <h2>6. Prediction</h2>
-    <button onclick="predict()" id="predict-btn" disabled>Predict</button>
-    <div id="prediction-output"></div>
-</section>
-
-<section>
-    <h2>7. Export</h2>
-    <button onclick="exportResults()" id="export-btn" disabled>Export</button>
-</section>
-
+        <section id="export">
+            <h2>8. Export</h2>
+            <button id="export-btn" onclick="exportResults()" disabled>Export submission.csv</button>
+            <div id="export-status"></div>
+        </section>
+    </div>
 </body>
 </html>
