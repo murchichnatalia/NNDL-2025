@@ -16,10 +16,21 @@ const ID_FEATURE = 'PassengerId'; // Identifier to exclude from features
 const NUMERICAL_FEATURES = ['Age', 'Fare', 'SibSp', 'Parch']; // Numerical features
 const CATEGORICAL_FEATURES = ['Pclass', 'Sex', 'Embarked']; // Categorical features
 
+// GitHub repository configuration
+// UPDATE THESE WITH YOUR ACTUAL REPOSITORY INFO
+const GITHUB_USERNAME = 'YOUR_GITHUB_USERNAME'; // Replace with your GitHub username
+const REPOSITORY_NAME = 'YOUR_REPOSITORY_NAME'; // Replace with your repository name
+const BRANCH = 'main'; // or 'master' depending on your repository
+
+// GitHub URLs for the CSV files
+const TRAIN_CSV_URL = `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${REPOSITORY_NAME}/${BRANCH}/train.csv`;
+const TEST_CSV_URL = `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${REPOSITORY_NAME}/${BRANCH}/test.csv`;
+
 // Initialize when page loads
 document.addEventListener('DOMContentLoaded', function() {
     // Add event listeners to buttons
-    document.getElementById('load-data-btn').addEventListener('click', loadData);
+    document.getElementById('load-data-btn').addEventListener('click', loadDataFromFiles);
+    document.getElementById('load-github-btn').addEventListener('click', loadDataFromGitHub);
     document.getElementById('inspect-btn').addEventListener('click', inspectData);
     document.getElementById('preprocess-btn').addEventListener('click', preprocessData);
     document.getElementById('create-model-btn').addEventListener('click', createModel);
@@ -30,10 +41,67 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize threshold slider
     const thresholdSlider = document.getElementById('threshold-slider');
     thresholdSlider.addEventListener('input', updateMetrics);
+    
+    // Auto-load data from GitHub on page load
+    autoLoadData();
 });
 
+// Auto-load data from GitHub when page loads
+async function autoLoadData() {
+    const statusDiv = document.getElementById('data-status');
+    statusDiv.innerHTML = '<div class="status info">Attempting to auto-load data from GitHub...</div>';
+    
+    try {
+        // Update GitHub URLs with page information
+        updateGitHubUrlsFromPage();
+        
+        // Try to load from GitHub first
+        await loadDataFromGitHub();
+    } catch (error) {
+        statusDiv.innerHTML = `
+            <div class="status info">
+                <p>Auto-load from GitHub failed: ${error.message}</p>
+                <p>Please load data manually using the buttons below.</p>
+            </div>
+        `;
+        console.log('Auto-load failed, manual load required:', error.message);
+    }
+}
+
+// Update GitHub URLs based on current page URL
+function updateGitHubUrlsFromPage() {
+    try {
+        // Get repository info from current URL if on GitHub Pages
+        const currentUrl = window.location.href;
+        if (currentUrl.includes('github.io')) {
+            // Extract username and repo from GitHub Pages URL
+            // Example: https://username.github.io/repository-name/
+            const urlParts = currentUrl.split('/');
+            const username = urlParts[2].split('.')[0]; // Get username from "username.github.io"
+            
+            // Try to get repo name from URL
+            if (urlParts.length > 3 && urlParts[3]) {
+                const repoName = urlParts[3];
+                // Update global variables
+                window.GITHUB_USERNAME = username;
+                window.REPOSITORY_NAME = repoName;
+                
+                console.log(`Detected GitHub Pages: ${username}/${repoName}`);
+                
+                // Update button text
+                const githubBtn = document.getElementById('load-github-btn');
+                if (githubBtn) {
+                    githubBtn.innerHTML = `Load from GitHub (${username}/${repoName})`;
+                }
+            }
+        }
+    } catch (error) {
+        console.log('Could not extract GitHub info from URL:', error);
+    }
+}
+
 // Load data from uploaded CSV files
-async function loadData() {
+async function loadDataFromFiles() {
     const trainFile = document.getElementById('train-file').files[0];
     const testFile = document.getElementById('test-file').files[0];
     
@@ -43,7 +111,7 @@ async function loadData() {
     }
     
     const statusDiv = document.getElementById('data-status');
-    statusDiv.innerHTML = 'Loading data...';
+    statusDiv.innerHTML = '<div class="status info">Loading data from uploaded files...</div>';
     
     try {
         // Load training data
@@ -54,17 +122,90 @@ async function loadData() {
         const testText = await readFile(testFile);
         testData = parseCSV(testText);
         
-        statusDiv.innerHTML = `Data loaded successfully! Training: ${trainData.length} samples, Test: ${testData.length} samples`;
+        statusDiv.innerHTML = `<div class="status success">
+            <p>✓ Data loaded successfully from uploaded files!</p>
+            <p>Training: ${trainData.length} samples</p>
+            <p>Test: ${testData.length} samples</p>
+        </div>`;
         
         // Enable the inspect button
         document.getElementById('inspect-btn').disabled = false;
+        
+        // Disable GitHub button since we're using local files
+        document.getElementById('load-github-btn').disabled = true;
     } catch (error) {
-        statusDiv.innerHTML = `Error loading data: ${error.message}`;
+        statusDiv.innerHTML = `<div class="status error">Error loading data: ${error.message}</div>`;
         console.error(error);
     }
 }
 
-// Read file as text
+// Load data from GitHub repository
+async function loadDataFromGitHub() {
+    const statusDiv = document.getElementById('data-status');
+    statusDiv.innerHTML = '<div class="status info">Loading data from GitHub...</div>';
+    
+    try {
+        // Determine GitHub URLs to use
+        let trainUrl, testUrl;
+        
+        // Check if custom URLs are provided in page
+        if (window.GITHUB_USERNAME && window.REPOSITORY_NAME) {
+            trainUrl = `https://raw.githubusercontent.com/${window.GITHUB_USERNAME}/${window.REPOSITORY_NAME}/main/train.csv`;
+            testUrl = `https://raw.githubusercontent.com/${window.GITHUB_USERNAME}/${window.REPOSITORY_NAME}/main/test.csv`;
+        } else {
+            // Use default URLs or extract from current page
+            trainUrl = TRAIN_CSV_URL;
+            testUrl = TEST_CSV_URL;
+        }
+        
+        console.log('Loading from GitHub URLs:', { trainUrl, testUrl });
+        
+        // Load training data from GitHub
+        const trainResponse = await fetch(trainUrl);
+        if (!trainResponse.ok) {
+            throw new Error(`Failed to load train.csv from GitHub: ${trainResponse.status} ${trainResponse.statusText}`);
+        }
+        const trainText = await trainResponse.text();
+        trainData = parseCSV(trainText);
+        
+        // Load test data from GitHub
+        const testResponse = await fetch(testUrl);
+        if (!testResponse.ok) {
+            throw new Error(`Failed to load test.csv from GitHub: ${testResponse.status} ${testResponse.statusText}`);
+        }
+        const testText = await testResponse.text();
+        testData = parseCSV(testText);
+        
+        statusDiv.innerHTML = `<div class="status success">
+            <p>✓ Data loaded successfully from GitHub!</p>
+            <p>Training: ${trainData.length} samples</p>
+            <p>Test: ${testData.length} samples</p>
+            <p>Source: ${trainUrl.split('/').slice(2, 4).join('/')}</p>
+        </div>`;
+        
+        // Enable the inspect button
+        document.getElementById('inspect-btn').disabled = false;
+        
+        // Disable file upload since we're using GitHub data
+        document.getElementById('train-file').disabled = true;
+        document.getElementById('test-file').disabled = true;
+        document.getElementById('load-data-btn').disabled = true;
+        
+    } catch (error) {
+        statusDiv.innerHTML = `<div class="status error">
+            <p>✗ Error loading data from GitHub: ${error.message}</p>
+            <p>Please upload files manually or check repository configuration.</p>
+        </div>`;
+        console.error('GitHub load error:', error);
+        
+        // Enable manual file upload as fallback
+        document.getElementById('train-file').disabled = false;
+        document.getElementById('test-file').disabled = false;
+        document.getElementById('load-data-btn').disabled = false;
+    }
+}
+
+// Read file as text (for manual upload)
 function readFile(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -316,7 +457,7 @@ async function preprocessData() {
     }
     
     const outputDiv = document.getElementById('preprocessing-output');
-    outputDiv.innerHTML = 'Preprocessing data...';
+    outputDiv.innerHTML = '<div class="status info">Preprocessing data...</div>';
     
     try {
         // Filter out rows with null target values for training
@@ -379,18 +520,18 @@ async function preprocessData() {
             passengerIds: testPassengerIds
         };
         
-        outputDiv.innerHTML = `
+        outputDiv.innerHTML = `<div class="status success">
             <p>✓ Preprocessing completed!</p>
             <p><strong>Training samples:</strong> ${trainFeatures.length}</p>
             <p><strong>Number of features:</strong> ${trainFeatures[0] ? trainFeatures[0].length : 0}</p>
             <p><strong>Test samples:</strong> ${testFeatures.length}</p>
             <p><strong>Imputation values:</strong> Age median: ${ageMedian.toFixed(2)}, Fare median: ${fareMedian.toFixed(2)}, Embarked mode: ${embarkedMode}</p>
-        `;
+        </div>`;
         
         // Enable the create model button
         document.getElementById('create-model-btn').disabled = false;
     } catch (error) {
-        outputDiv.innerHTML = `✗ Error during preprocessing: ${error.message}`;
+        outputDiv.innerHTML = `<div class="status error">✗ Error during preprocessing: ${error.message}</div>`;
         console.error(error);
     }
 }
@@ -565,7 +706,7 @@ async function trainModel() {
     }
     
     const statusDiv = document.getElementById('training-status');
-    statusDiv.innerHTML = 'Training model...';
+    statusDiv.innerHTML = '<div class="status info">Training model...</div>';
     
     try {
         // Convert data to tensors
@@ -616,7 +757,7 @@ async function trainModel() {
         // Enable the predict button
         document.getElementById('predict-btn').disabled = false;
         
-        statusDiv.innerHTML = '<p>✓ Training completed successfully!</p>';
+        statusDiv.innerHTML = '<div class="status success">✓ Training completed successfully!</div>';
         
         // Calculate initial metrics
         await updateMetrics();
@@ -628,7 +769,7 @@ async function trainModel() {
         trainLabels.dispose();
         
     } catch (error) {
-        statusDiv.innerHTML = `✗ Error during training: ${error.message}`;
+        statusDiv.innerHTML = `<div class="status error">✗ Error during training: ${error.message}</div>`;
         console.error(error);
     }
 }
@@ -767,165 +908,4 @@ async function predict() {
     }
     
     const outputDiv = document.getElementById('prediction-output');
-    outputDiv.innerHTML = 'Making predictions...';
-    
-    try {
-        // Convert test features to tensor
-        const testFeaturesTensor = tf.tensor2d(preprocessedTestData.features);
-        
-        // Make predictions
-        const predictionsTensor = model.predict(testFeaturesTensor);
-        const predValues = await predictionsTensor.array();
-        
-        // Store predictions
-        testPredictions = {
-            tensor: predictionsTensor,
-            values: predValues
-        };
-        
-        // Create prediction results - FIXED the toFixed error
-        const results = [];
-        for (let i = 0; i < preprocessedTestData.passengerIds.length; i++) {
-            const id = preprocessedTestData.passengerIds[i];
-            const prob = predValues[i][0];
-            
-            results.push({
-                PassengerId: id,
-                Survived: prob >= 0.5 ? 1 : 0,
-                Probability: prob
-            });
-        }
-        
-        // Show first 10 predictions
-        outputDiv.innerHTML = '<h3>Prediction Results (First 10 Rows)</h3>';
-        outputDiv.appendChild(createPredictionTable(results.slice(0, 10)));
-        
-        outputDiv.innerHTML += `<p>✓ Predictions completed! Total: ${results.length} samples</p>`;
-        
-        // Enable the export button
-        document.getElementById('export-btn').disabled = false;
-        
-        // Clean up tensor
-        testFeaturesTensor.dispose();
-        
-    } catch (error) {
-        outputDiv.innerHTML = `✗ Error during prediction: ${error.message}`;
-        console.error(error);
-    }
-}
-
-// Create prediction table
-function createPredictionTable(data) {
-    const table = document.createElement('table');
-    table.style.borderCollapse = 'collapse';
-    table.style.width = '100%';
-    table.style.margin = '10px 0';
-    
-    // Create header row
-    const headerRow = document.createElement('tr');
-    ['PassengerId', 'Survived', 'Probability'].forEach(header => {
-        const th = document.createElement('th');
-        th.textContent = header;
-        th.style.border = '1px solid #ddd';
-        th.style.padding = '8px';
-        th.style.backgroundColor = '#f2f2f2';
-        headerRow.appendChild(th);
-    });
-    table.appendChild(headerRow);
-    
-    // Create data rows
-    data.forEach(row => {
-        const tr = document.createElement('tr');
-        
-        // PassengerId
-        const tdId = document.createElement('td');
-        tdId.textContent = row.PassengerId;
-        tdId.style.border = '1px solid #ddd';
-        tdId.style.padding = '8px';
-        tr.appendChild(tdId);
-        
-        // Survived
-        const tdSurvived = document.createElement('td');
-        tdSurvived.textContent = row.Survived;
-        tdSurvived.style.border = '1px solid #ddd';
-        tdSurvived.style.padding = '8px';
-        tr.appendChild(tdSurvived);
-        
-        // Probability - FIXED: Use toFixed only if it's a number
-        const tdProb = document.createElement('td');
-        const probValue = row.Probability;
-        if (typeof probValue === 'number' && !isNaN(probValue)) {
-            tdProb.textContent = probValue.toFixed(4);
-        } else {
-            tdProb.textContent = 'N/A';
-        }
-        tdProb.style.border = '1px solid #ddd';
-        tdProb.style.padding = '8px';
-        tr.appendChild(tdProb);
-        
-        table.appendChild(tr);
-    });
-    
-    return table;
-}
-
-// Export results
-async function exportResults() {
-    if (!testPredictions || !preprocessedTestData) {
-        alert('Please make predictions first.');
-        return;
-    }
-    
-    const statusDiv = document.getElementById('export-status');
-    statusDiv.innerHTML = 'Exporting results...';
-    
-    try {
-        // Create submission CSV (PassengerId, Survived)
-        let submissionCSV = 'PassengerId,Survived\n';
-        for (let i = 0; i < preprocessedTestData.passengerIds.length; i++) {
-            const id = preprocessedTestData.passengerIds[i];
-            const prob = testPredictions.values[i][0];
-            submissionCSV += `${id},${prob >= 0.5 ? 1 : 0}\n`;
-        }
-        
-        // Create probabilities CSV (PassengerId, Probability)
-        let probabilitiesCSV = 'PassengerId,Probability\n';
-        for (let i = 0; i < preprocessedTestData.passengerIds.length; i++) {
-            const id = preprocessedTestData.passengerIds[i];
-            const prob = testPredictions.values[i][0];
-            probabilitiesCSV += `${id},${prob.toFixed(6)}\n`;
-        }
-        
-        // Create download links
-        const submissionLink = document.createElement('a');
-        submissionLink.href = URL.createObjectURL(new Blob([submissionCSV], { type: 'text/csv' }));
-        submissionLink.download = 'titanic_submission.csv';
-        submissionLink.click();
-        
-        // Small delay before second download
-        setTimeout(() => {
-            const probabilitiesLink = document.createElement('a');
-            probabilitiesLink.href = URL.createObjectURL(new Blob([probabilitiesCSV], { type: 'text/csv' }));
-            probabilitiesLink.download = 'titanic_probabilities.csv';
-            probabilitiesLink.click();
-            
-            // Try to save model
-            try {
-                model.save('downloads://titanic-tfjs-model');
-                statusDiv.innerHTML = `
-                    <p>✓ Export completed successfully!</p>
-                    <p>• Downloaded: <strong>titanic_submission.csv</strong> (Kaggle submission format)</p>
-                    <p>• Downloaded: <strong>titanic_probabilities.csv</strong> (Prediction probabilities)</p>
-                    <p>• Model saved to browser downloads as "titanic-tfjs-model"</p>
-                `;
-            } catch (saveError) {
-                statusDiv.innerHTML = `
-                    <p>✓ Export completed!</p>
-                    <p>• Downloaded: <strong>titanic_submission.csv</strong> (Kaggle submission format)</p>
-                    <p>• Downloaded: <strong>titanic_probabilities.csv</strong> (Prediction probabilities)</p>
-                    <p>Note: Model save not supported in this browser</p>
-                `;
-            }
-        }, 100);
-        
-   
+    outputDiv.innerHTML = '<div class="
