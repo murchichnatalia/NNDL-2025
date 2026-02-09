@@ -64,6 +64,24 @@
             background-color: #ccc;
             cursor: not-allowed;
         }
+        button.secondary {
+            background-color: #6c757d;
+        }
+        button.secondary:hover {
+            background-color: #5a6268;
+        }
+        button.success {
+            background-color: #28a745;
+        }
+        button.success:hover {
+            background-color: #218838;
+        }
+        .button-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 15px 0;
+        }
         input[type="file"] {
             margin: 10px 0;
             padding: 8px;
@@ -143,6 +161,11 @@
             color: #0c5460;
             border: 1px solid #bee5eb;
         }
+        .status.warning {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
         label {
             display: block;
             margin: 10px 0 5px 0;
@@ -165,6 +188,31 @@
             margin-left: 10px;
             font-size: 1.1em;
         }
+        .github-info {
+            background-color: #f6f8fa;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border: 1px solid #e1e4e8;
+            font-family: monospace;
+        }
+        .progress-container {
+            margin: 15px 0;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 5px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #1a73e8;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
         @media (max-width: 768px) {
             .metrics-container {
                 flex-direction: column;
@@ -175,6 +223,13 @@
             section {
                 padding: 15px;
             }
+            .button-group {
+                flex-direction: column;
+            }
+            button {
+                width: 100%;
+                margin: 5px 0;
+            }
         }
     </style>
 </head>
@@ -184,22 +239,43 @@
         
         <section id="data-load">
             <h2>1. Data Load</h2>
-            <p>Upload the training and test CSV files from the Titanic dataset:</p>
-            <div>
-                <label for="train-file">Training Data (train.csv):</label>
-                <input type="file" id="train-file" accept=".csv">
+            <p>Choose how to load the Titanic dataset:</p>
+            
+            <div class="button-group">
+                <button id="load-github-btn" class="success">Auto-Load from GitHub</button>
+                <button id="load-data-btn" class="secondary">Load from Uploaded Files</button>
             </div>
-            <div>
-                <label for="test-file">Test Data (test.csv):</label>
-                <input type="file" id="test-file" accept=".csv">
+            
+            <div class="progress-container" id="progress-container" style="display: none;">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+                <div id="progress-text">Loading...</div>
             </div>
-            <button id="load-data-btn">Load Data</button>
-            <div id="data-status" class="status"></div>
+            
+            <div style="margin: 20px 0;">
+                <h3>Upload Files Manually (Alternative)</h3>
+                <div>
+                    <label for="train-file">Training Data (train.csv):</label>
+                    <input type="file" id="train-file" accept=".csv">
+                </div>
+                <div>
+                    <label for="test-file">Test Data (test.csv):</label>
+                    <input type="file" id="test-file" accept=".csv">
+                </div>
+            </div>
+            
+            <div id="data-status" class="status info">
+                <p><strong>Ready to load data!</strong> Click "Auto-Load from GitHub" to automatically load data from your GitHub repository.</p>
+                <p class="github-info" id="github-url-info">
+                    GitHub URL: Detecting automatically...
+                </p>
+            </div>
         </section>
 
         <section id="inspect">
             <h2>2. Data Inspection</h2>
-            <button id="inspect-btn" disabled>Inspect Data</button>
+            <button id="inspect-btn">Inspect Data</button>
             <div id="data-preview" class="data-preview"></div>
             <div id="data-stats"></div>
             <div id="charts"></div>
@@ -207,7 +283,7 @@
 
         <section id="preprocessing">
             <h2>3. Preprocessing</h2>
-            <button id="preprocess-btn" disabled>Preprocess Data</button>
+            <button id="preprocess-btn">Preprocess Data</button>
             <div class="feature-toggle">
                 <input type="checkbox" id="add-family-features" checked>
                 <label for="add-family-features">Add Family Features (FamilySize, IsAlone)</label>
@@ -217,14 +293,16 @@
 
         <section id="model">
             <h2>4. Model Setup</h2>
-            <button id="create-model-btn" disabled>Create Model</button>
+            <button id="create-model-btn">Create Model</button>
             <div id="model-summary"></div>
         </section>
 
         <section id="training">
             <h2>5. Training</h2>
-            <button id="train-btn" disabled>Train Model</button>
-            <div id="training-status" class="status"></div>
+            <button id="train-btn">Train Model</button>
+            <div id="training-status" class="status info">
+                <p>Ready to train the model. Click "Train Model" to start training.</p>
+            </div>
             <div id="training-vis"></div>
         </section>
 
@@ -232,7 +310,7 @@
             <h2>6. Evaluation Metrics</h2>
             <div class="slider-container">
                 <label for="threshold-slider">Classification Threshold (for ROC curve):</label>
-                <input type="range" id="threshold-slider" class="slider" min="0" max="1" step="0.01" value="0.5" disabled>
+                <input type="range" id="threshold-slider" class="slider" min="0" max="1" step="0.01" value="0.5">
                 <span class="threshold-display">Threshold: <span id="threshold-value">0.5</span></span>
             </div>
             <div class="metrics-container">
@@ -253,14 +331,18 @@
 
         <section id="prediction">
             <h2>7. Prediction</h2>
-            <button id="predict-btn" disabled>Predict on Test Data</button>
-            <div id="prediction-output" class="status"></div>
+            <button id="predict-btn">Predict on Test Data</button>
+            <div id="prediction-output" class="status info">
+                <p>Ready to make predictions on test data.</p>
+            </div>
         </section>
 
         <section id="export">
             <h2>8. Export Results</h2>
-            <button id="export-btn" disabled>Export Results</button>
-            <div id="export-status" class="status"></div>
+            <button id="export-btn">Export Results</button>
+            <div id="export-status" class="status info">
+                <p>Ready to export prediction results.</p>
+            </div>
         </section>
 
         <section id="deployment">
@@ -269,18 +351,24 @@
                 <p><strong>To deploy this application:</strong></p>
                 <ol>
                     <li>Create a public GitHub repository</li>
-                    <li>Commit index.html and app.js to the repository</li>
+                    <li>Upload train.csv, test.csv, index.html, and app.js to the repository</li>
                     <li>Enable GitHub Pages in repository settings (select main branch and root folder)</li>
                     <li>Your app will be available at: <code>https://[your-username].github.io/[repository-name]</code></li>
                 </ol>
                 <p><strong>Features of this app:</strong></p>
                 <ul>
+                    <li>✅ <strong>Auto-load from GitHub:</strong> Automatically detects and loads CSV files from your GitHub repository</li>
+                    <li>✅ <strong>Manual upload option:</strong> Can also load data from uploaded files</li>
                     <li>✅ Handles CSV files with quoted values and commas</li>
                     <li>✅ Sigmoid activation for better feature importance</li>
                     <li>✅ Interactive evaluation metrics with ROC curve</li>
                     <li>✅ Export predictions for Kaggle submission</li>
                     <li>✅ Works entirely in the browser - no server needed!</li>
                 </ul>
+                <p class="status warning">
+                    <strong>Note:</strong> Make sure your CSV files are named exactly <code>train.csv</code> and <code>test.csv</code> 
+                    and are in the main branch of your GitHub repository.
+                </p>
             </div>
         </section>
     </div>
