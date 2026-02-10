@@ -517,6 +517,8 @@ async function updateMetrics() {
         else if (prediction === 1 && actual === 0) fp++;
         else if (prediction === 0 && actual === 1) fn++;
     }
+
+    visualizeFeatureImportance();
     
     // Update confusion matrix display
     const cmDiv = document.getElementById('confusion-matrix');
@@ -663,6 +665,41 @@ function createPredictionTable(data) {
     });
     
     return table;
+}
+
+function visualizeFeatureImportance() {
+    if (!model) return;
+
+    // Извлекаем веса первого полносвязного слоя
+    const weights = model.layers[0].getWeights()[0];
+    const weightValues = weights.arraySync(); // Получаем массив значений
+    
+    // Список признаков в том порядке, как они подаются в нейросеть
+    const featureNames = ['Age', 'Fare', 'SibSp', 'Parch', 'Pclass_1', 'Pclass_2', 'Pclass_3', 'Sex_Male', 'Sex_Female', 'Emb_C', 'Emb_Q', 'Emb_S'];
+    
+    // Добавляем доп. признаки, если чекбокс активен
+    if (document.getElementById('add-family-features').checked) {
+        featureNames.push('FamilySize', 'IsAlone');
+    }
+
+    // Считаем важность (средний абсолютный вес признака)
+    const importanceData = featureNames.map((name, i) => {
+        let sum = 0;
+        for (let j = 0; j < 16; j++) {
+            sum += Math.abs(weightValues[i][j]);
+        }
+        return { index: name, value: sum / 16 };
+    });
+
+    // Сортировка по убыванию
+    importanceData.sort((a, b) => b.value - a.value);
+
+    // Отрисовка в tfjs-vis (вкладка "Model Analysis")
+    tfvis.render.barchart(
+        { name: 'Feature Importance (Sigmoid Gate Analysis)', tab: 'Model Analysis' },
+        importanceData,
+        { xLabel: 'Features', yLabel: 'Importance Weight', height: 400 }
+    );
 }
 
 // Export results
