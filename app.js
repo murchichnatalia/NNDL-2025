@@ -627,11 +627,10 @@ async function predict() {
         const predValues = testPredictions.arraySync();
         
         // Create prediction results
-        const predValues = testPredictions.arraySync();
         const results = preprocessedTestData.passengerIds.map((id, i) => ({
-            PassengerId: id, // Оставляем для идентификации
+            PassengerId: id,
             Survived: predValues[i] >= 0.5 ? 1 : 0,
-            Probability: Number(predValues[i]) // Принудительно в число
+            Probability: predValues[i]
         }));
         
         // Show first 10 predictions
@@ -651,45 +650,6 @@ async function predict() {
 // Create prediction table
 function createPredictionTable(data) {
     const table = document.createElement('table');
-    table.setAttribute('class', 'prediction-table'); // Для CSS стилей
-    table.style.width = '100%';
-    table.style.borderCollapse = 'collapse';
-    table.border = "1";
-    
-    const headerRow = document.createElement('tr');
-    headerRow.style.backgroundColor = '#f2f2f2';
-    ['PassengerId', 'Survived', 'Probability'].forEach(header => {
-        const th = document.createElement('th');
-        th.style.padding = '10px';
-        th.textContent = header;
-        headerRow.appendChild(th);
-    });
-    table.appendChild(headerRow);
-    
-    data.forEach(row => {
-        const tr = document.createElement('tr');
-        ['PassengerId', 'Survived', 'Probability'].forEach(key => {
-            const td = document.createElement('td');
-            td.style.padding = '8px';
-            td.style.textAlign = 'center';
-            
-            let val = row[key];
-            
-            // Если это колонка вероятности — округляем, если это число
-            if (key === 'Probability') {
-                td.textContent = (typeof val === 'number') ? val.toFixed(4) : val;
-            } else {
-                // Для ID и Статуса выживания просто выводим как есть
-                td.textContent = val !== null ? val : 'N/A';
-            }
-            
-            tr.appendChild(td);
-        });
-        table.appendChild(tr);
-    });
-    
-    return table;
-}
     
     // Create header row
     const headerRow = document.createElement('tr');
