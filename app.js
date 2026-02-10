@@ -627,11 +627,15 @@ async function predict() {
         const predValues = testPredictions.arraySync();
         
         // Create prediction results
-        const results = preprocessedTestData.passengerIds.map((id, i) => ({
-            PassengerId: id,
-            Survived: predValues[i] >= 0.5 ? 1 : 0,
-            Probability: predValues[i]
-        }));
+        const results = preprocessedTestData.passengerIds.map((id, i) => {
+            // Извлекаем значение, даже если оно во вложенном массиве [prob]
+            const prob = Array.isArray(predValues[i]) ? predValues[i][0] : predValues[i];
+            return {
+                PassengerId: id,
+                Survived: prob >= 0.5 ? 1 : 0,
+                Probability: Number(prob) // Гарантируем, что это число
+            };
+        });
         
         // Show first 10 predictions
         outputDiv.innerHTML = '<h3>Prediction Results (First 10 Rows)</h3>';
@@ -650,12 +654,17 @@ async function predict() {
 // Create prediction table
 function createPredictionTable(data) {
     const table = document.createElement('table');
+    table.border = "1";
+    table.style.borderCollapse = "collapse";
+    table.style.width = "100%";
     
     // Create header row
     const headerRow = document.createElement('tr');
     ['PassengerId', 'Survived', 'Probability'].forEach(header => {
         const th = document.createElement('th');
         th.textContent = header;
+        th.style.padding = "8px";
+        th.style.backgroundColor = "#f2f2f2";
         headerRow.appendChild(th);
     });
     table.appendChild(headerRow);
@@ -665,7 +674,19 @@ function createPredictionTable(data) {
         const tr = document.createElement('tr');
         ['PassengerId', 'Survived', 'Probability'].forEach(key => {
             const td = document.createElement('td');
-            td.textContent = key === 'Probability' ? row[key].toFixed(4) : row[key];
+            td.style.padding = "5px";
+            td.style.textAlign = "center";
+            
+            let value = row[key];
+            
+            // ПРОВЕРКА: Если это колонка вероятности и это число — округляем.
+            // Если нет — просто выводим как текст.
+            if (key === 'Probability' && typeof value === 'number') {
+                td.textContent = value.toFixed(4);
+            } else {
+                td.textContent = value !== null ? value : 'N/A';
+            }
+            
             tr.appendChild(td);
         });
         table.appendChild(tr);
