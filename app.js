@@ -181,60 +181,66 @@ function createPreviewTable(data) {
 
 // Create visualizations using tfjs-vis
 function createVisualizations() {
+    if (!trainData || trainData.length === 0) return;
+
     const chartsDiv = document.getElementById('charts');
     chartsDiv.innerHTML = '<h3>Data Visualizations</h3>';
-    
-    // Survival by Sex
-    const survivalBySex = {};
+
+    // Automatically open the tfjs-vis visor
+    tfvis.visor().open();
+
+    // --- Processing Data for Survival by Sex ---
+    const sexMap = {};
     trainData.forEach(row => {
-        if (row.Sex && row.Survived !== undefined) {
-            if (!survivalBySex[row.Sex]) {
-                survivalBySex[row.Sex] = { survived: 0, total: 0 };
-            }
-            survivalBySex[row.Sex].total++;
-            if (row.Survived === 1) {
-                survivalBySex[row.Sex].survived++;
-            }
-        }
+        const sex = row.Sex ? String(row.Sex).trim().toLowerCase() : 'unknown';
+        const survived = parseInt(row.Survived);
+        if (!sexMap[sex]) sexMap[sex] = { survived: 0, total: 0 };
+        sexMap[sex].total++;
+        if (survived === 1) sexMap[sex].survived++;
     });
-    
-    const sexData = Object.entries(survivalBySex).map(([sex, stats]) => ({
-        sex,
-        survivalRate: (stats.survived / stats.total) * 100
+
+    const sexData = Object.entries(sexMap).map(([name, stats]) => ({
+        index: name.charAt(0).toUpperCase() + name.slice(1), // Capitalize (Male/Female)
+        value: (stats.survived / stats.total) * 100
     }));
-    
+
+    // --- Processing Data for Survival by Pclass ---
+    const classMap = {};
+    trainData.forEach(row => {
+        const pclass = row.Pclass ? String(row.Pclass).trim() : 'unknown';
+        const survived = parseInt(row.Survived);
+        if (!classMap[pclass]) classMap[pclass] = { survived: 0, total: 0 };
+        classMap[pclass].total++;
+        if (survived === 1) classMap[pclass].survived++;
+    });
+
+    const pclassData = Object.entries(classMap).sort().map(([name, stats]) => ({
+        index: `Class ${name}`,
+        value: (stats.survived / stats.total) * 100
+    }));
+
+    // Rendering Bar Charts with English labels
     tfvis.render.barchart(
         { name: 'Survival Rate by Sex', tab: 'Charts' },
-        sexData.map(d => ({ x: d.sex, y: d.survivalRate })),
-        { xLabel: 'Sex', yLabel: 'Survival Rate (%)' }
-    );
-    
-    // Survival by Pclass
-    const survivalByPclass = {};
-    trainData.forEach(row => {
-        if (row.Pclass !== undefined && row.Survived !== undefined) {
-            if (!survivalByPclass[row.Pclass]) {
-                survivalByPclass[row.Pclass] = { survived: 0, total: 0 };
-            }
-            survivalByPclass[row.Pclass].total++;
-            if (row.Survived === 1) {
-                survivalByPclass[row.Pclass].survived++;
-            }
+        sexData,
+        { 
+            xLabel: 'Sex', 
+            yLabel: 'Survival Rate (%)', 
+            height: 300 
         }
-    });
-    
-    const pclassData = Object.entries(survivalByPclass).map(([pclass, stats]) => ({
-        pclass: `Class ${pclass}`,
-        survivalRate: (stats.survived / stats.total) * 100
-    }));
-    
+    );
+
     tfvis.render.barchart(
         { name: 'Survival Rate by Passenger Class', tab: 'Charts' },
-        pclassData.map(d => ({ x: d.pclass, y: d.survivalRate })),
-        { xLabel: 'Passenger Class', yLabel: 'Survival Rate (%)' }
+        pclassData,
+        { 
+            xLabel: 'Passenger Class', 
+            yLabel: 'Survival Rate (%)', 
+            height: 300 
+        }
     );
-    
-    chartsDiv.innerHTML += '<p>Charts are displayed in the tfjs-vis visor. Click the button in the bottom right to view.</p>';
+
+    chartsDiv.innerHTML += '<p style="color: green;">Charts successfully rendered in the Visor (check the right side of the screen).</p>';
 }
 
 // Preprocess the data
