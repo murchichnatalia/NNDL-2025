@@ -489,6 +489,7 @@ async function trainModel() {
         
         // Calculate initial metrics
         updateMetrics();
+        visualizeFeatureImportance();
     } catch (error) {
         statusDiv.innerHTML = `Error during training: ${error.message}`;
         console.error(error);
@@ -518,7 +519,7 @@ async function updateMetrics() {
         else if (prediction === 0 && actual === 1) fn++;
     }
 
-    visualizeFeatureImportance();
+    
     
     // Update confusion matrix display
     const cmDiv = document.getElementById('confusion-matrix');
