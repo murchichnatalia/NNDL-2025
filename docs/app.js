@@ -127,24 +127,20 @@ function createStudentModel(archType) {
 // ------------------------------------------------------------------
 function studentLoss(yTrue, yPred) {
   return tf.tidy(() => {
-    // 1. Basic Reconstruction (MSE) - "Be like the input"
-    // Flatten
-    const flatTrue = yTrue.reshape([1, 256]);
-    const flatPred = yPred.reshape([1, 256]);
-    // Sort values
-   const sortedTrue = tf.sort(flatTrue, 1);
-    const sortedPred = tf.sort(flatPred, 1);
-    // Compare distributions
-    const lossSorted = mse(sortedTrue, sortedPred);
 
-    // 2. [TODO] Smoothness - "Be smooth locally"
+    // Distribution constraint
+    const bins = 20;
+
+    const histTrue = tf.histogramFixedWidth(yTrue, [0,1], bins);
+    const histPred = tf.histogramFixedWidth(yPred, [0,1], bins);
+
+    const lossSorted = mse(histTrue, histPred);
+
+    // Smooth image
     const lossSmooth = smoothness(yPred).mul(0.2);
 
-    // 3. [TODO] Direction - "Be bright on the right"
+    // Gradient direction
     const lossDir = directionX(yPred).mul(0.3);
-
-    // Total Loss
-    // return lossMSE.add(lossSmooth).add(lossDir);
 
     return lossSorted
       .add(lossSmooth)
@@ -358,5 +354,6 @@ function loop() {
 
 // Start
 init();
+
 
 
