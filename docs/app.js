@@ -129,11 +129,11 @@ function studentLoss(yTrue, yPred) {
   return tf.tidy(() => {
     // 1. Basic Reconstruction (MSE) - "Be like the input"
     // Flatten
-    const flatTrue = yTrue.reshape([1, 256]);
-    const flatPred = yPred.reshape([1, 256]);
+    const flatTrue = yTrue.reshape([256]);
+    const flatPred = yPred.reshape([256]);
     // Sort values
-    const sortedTrue = tf.topk(flatTrue, 256).values;
-    const sortedPred = tf.topk(flatPred, 256).values;
+   const sortedTrue = tf.sort(flatTrue);
+    const sortedPred = tf.sort(flatPred);
     // Compare distributions
     const lossSorted = mse(sortedTrue, sortedPred);
 
@@ -358,3 +358,4 @@ function loop() {
 
 // Start
 init();
+
