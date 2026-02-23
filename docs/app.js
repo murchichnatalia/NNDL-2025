@@ -57,7 +57,6 @@ function smoothness(yPred) {
 // Encourage pixels on the right to be brighter than pixels on the left.
 function directionX(yPred) {
   // Create a weight mask that increases from left (-1) to right (+1)
-  // For 16x16, we can just use linspace
   const width = 16;
   const mask = tf.linspace(-1, 1, width).reshape([1, 1, width, 1]); // [1, 1, 16, 1]
 
@@ -66,26 +65,33 @@ function directionX(yPred) {
   return tf.mean(yPred.mul(mask)).mul(-1);
 }
 
-// Helper - Soft Histogram Preservation
+// Helper - Histogram Preservation using topk (TensorFlow way)
 // Penalizes changes in color distribution
 function preserveHistogram(yTrue, yPred) {
   return tf.tidy(() => {
-    // Sort pixels in both images
-    const sortedTrue = yTrue.reshape([-1]).sort();
-    const sortedPred = yPred.reshape([-1]).sort();
-    // Penalize differences in distribution
-    return tf.losses.meanSquaredError(sortedTrue, sortedPred);
+    const trueFlat = yTrue.reshape([-1]);
+    const predFlat = yPred.reshape([-1]);
+    
+    const k = 256; // 16*16 = 256 пикселей
+    const trueSorted = tf.topk(trueFlat, k).values;
+    const predSorted = tf.topk(predFlat, k).values;
+    
+    return tf.losses.meanSquaredError(trueSorted, predSorted);
   });
 }
 
-// Helper - Strict Histogram Preservation
+// Helper - Strict Histogram Preservation using topk
 // Strict penalty for creating new colors
 function strictHistogramPreservation(yTrue, yPred) {
   return tf.tidy(() => {
-    const sortedTrue = yTrue.reshape([-1]).sort();
-    const sortedPred = yPred.reshape([-1]).sort();
-    // L1 norm for stricter penalty
-    return tf.abs(sortedTrue.sub(sortedPred)).mean().mul(2.0);
+    const trueFlat = yTrue.reshape([-1]);
+    const predFlat = yPred.reshape([-1]);
+    
+    const k = 256;
+    const trueSorted = tf.topk(trueFlat, k).values;
+    const predSorted = tf.topk(predFlat, k).values;
+    
+    return tf.abs(trueSorted.sub(predSorted)).mean().mul(2.0);
   });
 }
 
@@ -406,4 +412,4 @@ function loop() {
 }
 
 // Start
-init();
+window.onload = init;
