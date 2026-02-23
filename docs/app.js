@@ -25,45 +25,44 @@ let state = {
   xInput: null, // The fixed noise input
   baselineModel: null,
   studentModel: null,
-  optimizer: null,
+  // [ИСПРАВЛЕНО] Разделяем оптимизаторы для двух моделей
+  baselineOptimizer: null,
+  studentOptimizer: null,
 };
 
-// ==========================================
-// 2. Helper Functions (Loss Components)
-// ==========================================
-
-// Standard MSE: Mean Squared Error - ДОБАВЛЕНО!
+// Standard MSE: Mean Squared Error
 function mse(yTrue, yPred) {
   return tf.losses.meanSquaredError(yTrue, yPred);
 }
 
-// TODO: Helper - Smoothness (Total Variation) - ИСПРАВЛЕНО
+// TODO: Helper - Smoothness (Total Variation) - ПРОСТОЙ ВАРИАНТ
 function smoothness(yPred) {
   return tf.tidy(() => {
-    // Разница по X
-    const diffX = yPred
-      .slice([0, 0, 0, 0], [-1, -1, 15, -1])
-      .sub(yPred.slice([0, 0, 1, 0], [-1, -1, 15, -1]));
+    // Просто считаем разницу между соседними пикселями
+    const diffX = yPred.slice([0, 0, 0, 0], [1, 16, 15, 1])
+      .sub(yPred.slice([0, 0, 1, 0], [1, 16, 15, 1]));
     
-    // Разница по Y
-    const diffY = yPred
-      .slice([0, 0, 0, 0], [-1, 15, -1, -1])
-      .sub(yPred.slice([0, 1, 0, 0], [-1, 15, -1, -1]));
+    const diffY = yPred.slice([0, 0, 0, 0], [1, 15, 16, 1])
+      .sub(yPred.slice([0, 1, 0, 0], [1, 15, 16, 1]));
     
-    return tf.mean(tf.square(diffX)).add(tf.mean(tf.square(diffY))).mul(10); // Увеличиваем вес
+    // L1 норма работает лучше для гладкости
+    return tf.mean(tf.abs(diffX)).add(tf.mean(tf.abs(diffY))).mul(20);
   });
 }
 
-// TODO: Helper - Directionality (Gradient) - ИСПРАВЛЕНО
+// TODO: Helper - Directionality (Gradient) - ПРОСТОЙ ВАРИАНТ
 function directionX(yPred) {
   return tf.tidy(() => {
+    const height = 16;
     const width = 16;
-    // Маска от 0 до 1 (линейно)
-    const mask = tf.linspace(0, 1, width).reshape([1, 1, width, 1]);
     
-    // Просто штрафуем за отклонение от идеального градиента
-    const target = tf.onesLike(yPred).mul(mask);
-    return tf.losses.meanSquaredError(target, yPred).mul(100); // Сильный штраф!
+    // Целевой градиент от темного к светлому
+    const target = tf.linspace(0.1, 0.9, width)
+      .reshape([1, 1, width, 1])
+      .tile([1, height, 1, 1]);
+    
+    // Просто MSE с целевым градиентом
+    return tf.losses.meanSquaredError(target, yPred).mul(100);
   });
 }
 
@@ -83,11 +82,7 @@ function createBaselineModel() {
   return model;
 }
 
-// ------------------------------------------------------------------
-// [TODO-A]: STUDENT ARCHITECTURE DESIGN
-// Modify this function to implement 'transformation' and 'expansion'.
-// ------------------------------------------------------------------
-// ------------------------------------------------------------------
+/// ------------------------------------------------------------------
 // [TODO-A]: STUDENT ARCHITECTURE DESIGN - ИСПРАВЛЕНО
 // Modify this function to implement 'transformation' and 'expansion'.
 // ------------------------------------------------------------------
@@ -100,20 +95,12 @@ function createStudentModel(archType) {
     model.add(tf.layers.dense({ units: 64, activation: "relu" }));
     model.add(tf.layers.dense({ units: 256, activation: "sigmoid" }));
   } else if (archType === "transformation") {
-    // [ИСПРАВЛЕНО]: Transformation (1:1 mapping)
-    // Используем слой с размерностью, равной входной (256 нейронов)
-    // Это позволяет модели переставлять пиксели, не меняя их количество
+    // [ИСПРАВЛЕНО]: Implement Transformation (1:1 mapping)
+    // Сохраняем размерность 256 (равную входной 16x16=256)
     model.add(tf.layers.dense({ 
       units: 256, 
       activation: "relu",
-      name: "transform_layer_1"
-    }));
-    
-    // Второй слой тоже 256 нейронов для сохранения размерности
-    model.add(tf.layers.dense({ 
-      units: 256, 
-      activation: "relu",
-      name: "transform_layer_2"
+      name: "transform_hidden"
     }));
     
     // Выходной слой с сигмоидой для нормализации в [0,1]
@@ -124,28 +111,30 @@ function createStudentModel(archType) {
     }));
 
   } else if (archType === "expansion") {
-    // [ИСПРАВЛЕНО]: Expansion (Overcomplete)
+    // [ИСПРАВЛЕНО]: Implement Expansion (Overcomplete)
     // Увеличиваем размерность для более сложных трансформаций
     model.add(tf.layers.dense({ 
       units: 512, 
       activation: "relu",
-      name: "expansion_layer_1"
+      name: "expand_hidden_1"
     }));
     
-    // Промежуточный слой для обработки расширенного представления
+    // Промежуточный слой для обработки
     model.add(tf.layers.dense({ 
       units: 384, 
       activation: "relu",
-      name: "expansion_layer_2"
+      name: "expand_hidden_2"
     }));
     
     // Возвращаемся к исходной размерности
     model.add(tf.layers.dense({ 
       units: 256, 
       activation: "sigmoid",
-      name: "expansion_output"
+      name: "expand_output"
     }));
+    
   } else {
+    // Safety check for unknown architectures
     throw new Error(`Unknown architecture type: ${archType}`);
   }
 
@@ -158,22 +147,22 @@ function createStudentModel(archType) {
 // ==========================================
 
 // ------------------------------------------------------------------
-// [TODO-B]: STUDENT LOSS DESIGN
+// [TODO-B]: STUDENT LOSS DESIGN - ИСПРАВЛЕНО
 // Modify this function to create a smooth gradient.
-// Currently, it only uses MSE (Identity mapping).
 // ------------------------------------------------------------------
 function studentLoss(yTrue, yPred) {
   return tf.tidy(() => {
-    // 1. Basic Reconstruction (MSE) - минимальный вес, чтобы сохранить связь с входом
-    const lossMSE = mse(yTrue, yPred).mul(0.01); // Уменьшаем влияние до 1%
+    // 1. Basic Reconstruction (MSE) - минимальное влияние, чтобы сохранить цвета
+    // Уменьшаем вес, чтобы модель не копировала шум
+    const lossMSE = mse(yTrue, yPred).mul(0.01);
 
     // 2. [ИСПРАВЛЕНО] Smoothness - "Be smooth locally"
-    // Заставляем соседние пиксели быть похожими
-    const lossSmooth = smoothness(yPred).mul(0.5); // Вес 0.5 (50% влияния)
+    // Заставляем соседние пиксели быть похожими (убираем шум)
+    const lossSmooth = smoothness(yPred).mul(0.5); // Вес 0.5
 
     // 3. [ИСПРАВЛЕНО] Direction - "Be bright on the right"
-    // Создаем градиент слева направо
-    const lossDir = directionX(yPred).mul(1.0); // Вес 1.0 (100% влияния)
+    // Создаем градиент слева направо (главная цель)
+    const lossDir = directionX(yPred).mul(1.0); // Вес 1.0
 
     // Total Loss - комбинация всех компонентов
     return lossMSE.add(lossSmooth).add(lossDir);
@@ -181,7 +170,7 @@ function studentLoss(yTrue, yPred) {
 }
 
 // ==========================================
-// 5. Training Loop
+// 5. Training Loop - ИСПРАВЛЕНО
 // ==========================================
 
 async function trainStep() {
@@ -194,19 +183,18 @@ async function trainStep() {
     return;
   }
 
-  // Train Baseline (MSE Only)
-  // We use a simple fit here or gradient tape, let's use tape for consistency
+  // Train Baseline (MSE Only) - используем baselineOptimizer
   const baselineLossVal = tf.tidy(() => {
     const { value, grads } = tf.variableGrads(() => {
       const yPred = state.baselineModel.predict(state.xInput);
       return mse(state.xInput, yPred); // Baseline always uses MSE
     }, state.baselineModel.getWeights());
 
-    state.optimizer.applyGradients(grads);
+    state.baselineOptimizer.applyGradients(grads); // [ИСПРАВЛЕНО] Свой оптимизатор
     return value.dataSync()[0];
   });
 
-  // Train Student (Custom Loss)
+  // Train Student (Custom Loss) - используем studentOptimizer
   let studentLossVal = 0;
   try {
     studentLossVal = tf.tidy(() => {
@@ -215,7 +203,7 @@ async function trainStep() {
         return studentLoss(state.xInput, yPred); // Uses student's custom loss
       }, state.studentModel.getWeights());
 
-      state.optimizer.applyGradients(grads);
+      state.studentOptimizer.applyGradients(grads); // [ИСПРАВЛЕНО] Свой оптимизатор
       return value.dataSync()[0];
     });
     log(
@@ -235,7 +223,7 @@ async function trainStep() {
 }
 
 // ==========================================
-// 6. UI & Initialization logic
+// 6. UI & Initialization logic - ИСПРАВЛЕНО
 // ==========================================
 
 function init() {
@@ -297,10 +285,14 @@ function resetModels(archType = null) {
     state.studentModel.dispose();
     state.studentModel = null;
   }
-  // Important: Dispose optimizer because it holds references to old model variables.
-  if (state.optimizer) {
-    state.optimizer.dispose();
-    state.optimizer = null;
+  // [ИСПРАВЛЕНО] Dispose обоих оптимизаторов
+  if (state.baselineOptimizer) {
+    state.baselineOptimizer.dispose();
+    state.baselineOptimizer = null;
+  }
+  if (state.studentOptimizer) {
+    state.studentOptimizer.dispose();
+    state.studentOptimizer = null;
   }
 
   // Create New Models
@@ -312,8 +304,9 @@ function resetModels(archType = null) {
     state.studentModel = createBaselineModel(); // Fallback to avoid crash
   }
 
-  // Create new optimizer (must be done AFTER models are created)
-  state.optimizer = tf.train.adam(CONFIG.learningRate);
+  // [ИСПРАВЛЕНО] Создаем два отдельных оптимизатора
+  state.baselineOptimizer = tf.train.adam(CONFIG.learningRate);
+  state.studentOptimizer = tf.train.adam(CONFIG.learningRate);
   state.step = 0;
 
   log(`Models reset. Student Arch: ${archType}`);
@@ -386,4 +379,3 @@ function loop() {
 
 // Start
 init();
-
