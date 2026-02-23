@@ -37,7 +37,8 @@ function mse(yTrue, yPred) {
   return tf.losses.meanSquaredError(yTrue, yPred);
 }
 
-// Helper - Smoothness (Total Variation) with L1 norm for better gradients
+// TODO: Helper - Smoothness (Total Variation)
+// Penalize differences between adjacent pixels to encourage smoothness.
 function smoothness(yPred) {
   // Difference in X direction: pixel[i, j] - pixel[i, j+1]
   const diffX = yPred
@@ -49,50 +50,21 @@ function smoothness(yPred) {
     .slice([0, 0, 0, 0], [-1, 15, -1, -1])
     .sub(yPred.slice([0, 1, 0, 0], [-1, 15, -1, -1]));
 
-  // L1 norm (absolute difference) - better for gradient formation
-  return tf.mean(tf.abs(diffX)).add(tf.mean(tf.abs(diffY)));
+  // Return sum of squares
+  return tf.mean(tf.square(diffX)).add(tf.mean(tf.square(diffY)));
 }
 
-// Helper - Directionality (Gradient)
+// TODO: Helper - Directionality (Gradient)
 // Encourage pixels on the right to be brighter than pixels on the left.
 function directionX(yPred) {
   // Create a weight mask that increases from left (-1) to right (+1)
+  // For 16x16, we can just use linspace
   const width = 16;
   const mask = tf.linspace(-1, 1, width).reshape([1, 1, width, 1]); // [1, 1, 16, 1]
 
   // We want yPred to correlate with mask.
   // Maximize (yPred * mask) => Minimize -(yPred * mask)
   return tf.mean(yPred.mul(mask)).mul(-1);
-}
-
-// Helper - Histogram Preservation using topk (TensorFlow way)
-// Penalizes changes in color distribution
-function preserveHistogram(yTrue, yPred) {
-  return tf.tidy(() => {
-    const trueFlat = yTrue.reshape([-1]);
-    const predFlat = yPred.reshape([-1]);
-    
-    const k = 256; // 16*16 = 256 пикселей
-    const trueSorted = tf.topk(trueFlat, k).values;
-    const predSorted = tf.topk(predFlat, k).values;
-    
-    return tf.losses.meanSquaredError(trueSorted, predSorted);
-  });
-}
-
-// Helper - Strict Histogram Preservation using topk
-// Strict penalty for creating new colors
-function strictHistogramPreservation(yTrue, yPred) {
-  return tf.tidy(() => {
-    const trueFlat = yTrue.reshape([-1]);
-    const predFlat = yPred.reshape([-1]);
-    
-    const k = 256;
-    const trueSorted = tf.topk(trueFlat, k).values;
-    const predSorted = tf.topk(predFlat, k).values;
-    
-    return tf.abs(trueSorted.sub(predSorted)).mean().mul(2.0);
-  });
 }
 
 // ==========================================
@@ -112,51 +84,31 @@ function createBaselineModel() {
 }
 
 // ------------------------------------------------------------------
-// [FIXED-A]: STUDENT ARCHITECTURE DESIGN
-// Implemented 'transformation' and 'expansion' with histogram preservation
+// [TODO-A]: STUDENT ARCHITECTURE DESIGN
+// Modify this function to implement 'transformation' and 'expansion'.
 // ------------------------------------------------------------------
 function createStudentModel(archType) {
   const model = tf.sequential();
   model.add(tf.layers.flatten({ inputShape: CONFIG.inputShapeModel }));
 
   if (archType === "compression") {
-    // [Improved] Increased capacity for better color preservation
-    model.add(tf.layers.dense({ 
-      units: 128,  // Increased from 64 to preserve color information
-      activation: "relu",
-      kernelInitializer: 'heNormal'
-    }));
-    model.add(tf.layers.dense({ 
-      units: 256, 
-      activation: "sigmoid" 
-    }));
+    // [Implemented] Bottleneck: Compress information
+    model.add(tf.layers.dense({ units: 64, activation: "relu" }));
+    model.add(tf.layers.dense({ units: 256, activation: "sigmoid" }));
   } else if (archType === "transformation") {
-    // [FIXED] Transformation: 1:1 mapping for precise pixel rearrangement
-    model.add(tf.layers.dense({ 
-      units: 256,  // Full dimension preservation (16*16=256)
-      activation: "relu",
-      kernelInitializer: 'heNormal'
-    }));
-    model.add(tf.layers.dense({ 
-      units: 256, 
-      activation: "sigmoid" 
-    }));
-  } else if (archType === "expansion") {
-    // [FIXED] Expansion: Overcomplete for complex transformations
-    model.add(tf.layers.dense({ 
-      units: 512,  // Increase dimension
-      activation: "relu",
-      kernelInitializer: 'heNormal'
-    }));
-    model.add(tf.layers.dense({ 
-      units: 512,  // Additional layer for nonlinearity
-      activation: "relu"
-    }));
-    model.add(tf.layers.dense({ 
-      units: 256, 
-      activation: "sigmoid" 
-    }));
-  } else {
+
+  model.add(tf.layers.dense({ units: 256, activation: "relu" }));
+  model.add(tf.layers.dense({ units: 256, activation: "relu" }));
+  model.add(tf.layers.dense({ units: 256, activation: "sigmoid" }));
+
+} else if (archType === "expansion") {
+
+  model.add(tf.layers.dense({ units: 512, activation: "relu" }));
+  model.add(tf.layers.dense({ units: 512, activation: "relu" }));
+  model.add(tf.layers.dense({ units: 256, activation: "sigmoid" }));
+
+} else {
+    // Safety check for unknown architectures
     throw new Error(`Unknown architecture type: ${archType}`);
   }
 
@@ -169,42 +121,34 @@ function createStudentModel(archType) {
 // ==========================================
 
 // ------------------------------------------------------------------
-// [FIXED-B]: STUDENT LOSS DESIGN
-// Modified to create smooth gradient while preserving histogram
+// [TODO-B]: STUDENT LOSS DESIGN
+// Modify this function to create a smooth gradient.
+// Currently, it only uses MSE (Identity mapping).
 // ------------------------------------------------------------------
 function studentLoss(yTrue, yPred) {
   return tf.tidy(() => {
-    // 1. Histogram preservation (MAIN CONSTRAINT)
-    const lossHistSoft = preserveHistogram(yTrue, yPred).mul(50.0);
-    const lossHistStrict = strictHistogramPreservation(yTrue, yPred).mul(100.0);
-    
-    // 2. Smoothness - local smoothness
-    const lossSmooth = smoothness(yPred).mul(5.0);
-    
-    // 3. Direction - gradient from left to right
-    const lossDir = directionX(yPred).mul(10.0);
-    
-    // 4. Adaptive MSE based on architecture
-    const archType = document.querySelector('input[name="arch"]:checked')?.value || "compression";
-    let lossMSE;
-    
-    if (archType === "compression") {
-      // Compression needs more MSE to preserve structure
-      lossMSE = mse(yTrue, yPred).mul(1.0);
-    } else if (archType === "transformation") {
-      // Transformation can work with small MSE
-      lossMSE = mse(yTrue, yPred).mul(0.2);
-    } else { // expansion
-      // Expansion needs medium MSE
-      lossMSE = mse(yTrue, yPred).mul(0.5);
-    }
-    
-    // Total Loss - all components combined
-    return lossMSE
+    // 1. Basic Reconstruction (MSE) - "Be like the input"
+    // Flatten
+    const flatTrue = yTrue.reshape([1, 256]);
+    const flatPred = yPred.reshape([1, 256]);
+    // Sort values
+    const sortedTrue = tf.topk(flatTrue, 256).values;
+    const sortedPred = tf.topk(flatPred, 256).values;
+    // Compare distributions
+    const lossSorted = mse(sortedTrue, sortedPred);
+
+    // 2. [TODO] Smoothness - "Be smooth locally"
+    const lossSmooth = smoothness(yPred).mul(0.2);
+
+    // 3. [TODO] Direction - "Be bright on the right"
+    const lossDir = directionX(yPred).mul(0.3);
+
+    // Total Loss
+    // return lossMSE.add(lossSmooth).add(lossDir);
+
+    return lossSorted
       .add(lossSmooth)
-      .add(lossDir)
-      .add(lossHistSoft)
-      .add(lossHistStrict);
+      .add(lossDir);
   });
 }
 
@@ -223,6 +167,7 @@ async function trainStep() {
   }
 
   // Train Baseline (MSE Only)
+  // We use a simple fit here or gradient tape, let's use tape for consistency
   const baselineLossVal = tf.tidy(() => {
     const { value, grads } = tf.variableGrads(() => {
       const yPred = state.baselineModel.predict(state.xInput);
@@ -412,4 +357,4 @@ function loop() {
 }
 
 // Start
-window.onload = init;
+init();
