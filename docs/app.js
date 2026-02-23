@@ -37,8 +37,7 @@ function mse(yTrue, yPred) {
   return tf.losses.meanSquaredError(yTrue, yPred);
 }
 
-// TODO: Helper - Smoothness (Total Variation)
-// Penalize differences between adjacent pixels to encourage smoothness.
+// Smoothness (Total Variation) - Penalize differences between adjacent pixels
 function smoothness(yPred) {
   // Difference in X direction: pixel[i, j] - pixel[i, j+1]
   const diffX = yPred
@@ -50,21 +49,59 @@ function smoothness(yPred) {
     .slice([0, 0, 0, 0], [-1, 15, -1, -1])
     .sub(yPred.slice([0, 1, 0, 0], [-1, 15, -1, -1]));
 
-  // Return sum of squares
-  return tf.mean(tf.square(diffX)).add(tf.mean(tf.square(diffY)));
+  // Return mean of absolute differences (L1 norm - лучше для резких границ)
+  return tf.mean(tf.abs(diffX)).add(tf.mean(tf.abs(diffY)));
 }
 
-// TODO: Helper - Directionality (Gradient)
-// Encourage pixels on the right to be brighter than pixels on the left.
+// Directionality (Gradient) - Encourage pixels on the right to be brighter
 function directionX(yPred) {
   // Create a weight mask that increases from left (-1) to right (+1)
-  // For 16x16, we can just use linspace
   const width = 16;
   const mask = tf.linspace(-1, 1, width).reshape([1, 1, width, 1]); // [1, 1, 16, 1]
-
-  // We want yPred to correlate with mask.
-  // Maximize (yPred * mask) => Minimize -(yPred * mask)
+  
+  // We want yPred to correlate with mask (bright on right)
+  // Maximize correlation => Minimize negative correlation
   return tf.mean(yPred.mul(mask)).mul(-1);
+}
+
+// Directionality (Vertical) - Encourage pixels on the bottom to be brighter
+function directionY(yPred) {
+  // Create a weight mask that increases from top (-1) to bottom (+1)
+  const height = 16;
+  const mask = tf.linspace(-1, 1, height).reshape([1, height, 1, 1]); // [1, 16, 1, 1]
+  
+  return tf.mean(yPred.mul(mask)).mul(-1);
+}
+
+// [НОВАЯ ФУНКЦИЯ] Сохранение гистограммы цветов
+// Штрафует за изменение распределения яркости пикселей
+function preserveHistogram(yTrue, yPred) {
+  return tf.tidy(() => {
+    // Сортируем пиксели в обоих изображениях
+    const sortedTrue = yTrue.reshape([-1]).sort();
+    const sortedPred = yPred.reshape([-1]).sort();
+    
+    // Штрафуем за разницу в распределении (MSE между отсортированными значениями)
+    return tf.losses.meanSquaredError(sortedTrue, sortedPred);
+  });
+}
+
+// [НОВАЯ ФУНКЦИЯ] Проверка на создание новых цветов
+// Строгий штраф за выход за пределы исходной гистограммы
+function strictHistogramPreservation(yTrue, yPred) {
+  return tf.tidy(() => {
+    // Сортируем исходные пиксели
+    const sortedTrue = yTrue.reshape([-1]).sort();
+    
+    // Сортируем предсказанные пиксели
+    const sortedPred = yPred.reshape([-1]).sort();
+    
+    // Вычисляем разницу между соответствующими квантилями
+    const diff = sortedTrue.sub(sortedPred);
+    
+    // Используем L1 норму для более строгого штрафа
+    return tf.abs(diff).mean().mul(2.0);
+  });
 }
 
 // ==========================================
@@ -72,50 +109,60 @@ function directionX(yPred) {
 // ==========================================
 
 // Baseline Model: Fixed Compression (Undercomplete AE)
-// 16x16 -> 64 -> 16x16
 function createBaselineModel() {
   const model = tf.sequential();
   model.add(tf.layers.flatten({ inputShape: CONFIG.inputShapeModel }));
   model.add(tf.layers.dense({ units: 64, activation: "relu" })); // Bottleneck
   model.add(tf.layers.dense({ units: 256, activation: "sigmoid" })); // Output 0-1
-  // Reshape back to [16, 16, 1] (batch dim is handled automatically)
   model.add(tf.layers.reshape({ targetShape: [16, 16, 1] }));
   return model;
 }
 
 // ------------------------------------------------------------------
-// [TODO-A]: STUDENT ARCHITECTURE DESIGN
-// Modify this function to implement 'transformation' and 'expansion'.
+// [FIXED-A]: Студенческие архитектуры для всех трех типов
 // ------------------------------------------------------------------
 function createStudentModel(archType) {
   const model = tf.sequential();
   model.add(tf.layers.flatten({ inputShape: CONFIG.inputShapeModel }));
 
   if (archType === "compression") {
-    // [Implemented] Bottleneck: Compress information
-    model.add(tf.layers.dense({ units: 64, activation: "relu" }));
-    model.add(tf.layers.dense({ units: 256, activation: "sigmoid" }));
+    // Compression: Сжимаем информацию, но стараемся сохранить распределение
+    // Добавляем больше нейронов в скрытом слое для сохранения информации о цветах
+    model.add(tf.layers.dense({ 
+      units: 128,                    // Увеличили с 64 до 128 для лучшего сохранения цветов
+      activation: "relu",
+      kernelInitializer: 'heNormal'  // Лучшая инициализация для ReLU
+    }));
+    model.add(tf.layers.dense({ 
+      units: 256, 
+      activation: "sigmoid" 
+    }));
   } else if (archType === "transformation") {
-    // [TODO]: Implement Transformation (1:1 mapping)
-    // Hint: Maintain dimension (e.g., hidden layer size approx equal to input size 256)
-    // model.add(tf.layers.dense({units: 256, activation: 'relu'}));
-    // model.add(tf.layers.dense({units: 256, activation: 'sigmoid'}));
-
-    throw new Error(
-      "Transformation architecture NOT implemented yet! (Check app.js TODO-A)",
-    );
+    // [FIXED]: Transformation - сохраняем размерность для точной перестановки пикселей
+    model.add(tf.layers.dense({ 
+      units: 256,                     // Полное сохранение размерности
+      activation: "relu",
+      kernelInitializer: 'heNormal'
+    }));
+    model.add(tf.layers.dense({ 
+      units: 256, 
+      activation: "sigmoid" 
+    }));
   } else if (archType === "expansion") {
-    // [TODO]: Implement Expansion (Overcomplete)
-    // Hint: Increase dimension (e.g., hidden layer > 256)
-    // model.add(tf.layers.dense({units: 512, activation: 'relu'}));
-    // model.add(tf.layers.dense({units: 256, activation: 'sigmoid'}));
-
-    throw new Error(
-      "Expansion architecture NOT implemented yet! (Check app.js TODO-A)",
-    );
-  } else {
-    // Safety check for unknown architectures
-    throw new Error(`Unknown architecture type: ${archType}`);
+    // [FIXED]: Expansion - избыточная размерность для сложных преобразований
+    model.add(tf.layers.dense({ 
+      units: 512,                     // Увеличиваем размерность
+      activation: "relu",
+      kernelInitializer: 'heNormal'
+    }));
+    model.add(tf.layers.dense({ 
+      units: 512,                     // Дополнительный слой для нелинейности
+      activation: "relu"
+    }));
+    model.add(tf.layers.dense({ 
+      units: 256, 
+      activation: "sigmoid" 
+    }));
   }
 
   model.add(tf.layers.reshape({ targetShape: [16, 16, 1] }));
@@ -127,25 +174,44 @@ function createStudentModel(archType) {
 // ==========================================
 
 // ------------------------------------------------------------------
-// [TODO-B]: STUDENT LOSS DESIGN
-// Modify this function to create a smooth gradient.
-// Currently, it only uses MSE (Identity mapping).
+// [FIXED-B]: Функция потерь для создания градиента с сохранением цветов
 // ------------------------------------------------------------------
 function studentLoss(yTrue, yPred) {
   return tf.tidy(() => {
-    // 1. Basic Reconstruction (MSE) - "Be like the input"
-    const lossMSE = mse(yTrue, yPred);
-
-    // 2. [TODO] Smoothness - "Be smooth locally"
-    // const lossSmooth = smoothness(yPred).mul(0.0); // Increase weight (e.g., 0.1)
-
-    // 3. [TODO] Direction - "Be bright on the right"
-    // const lossDir = directionX(yPred).mul(0.0); // Increase weight (e.g., 0.1)
-
-    // Total Loss
-    // return lossMSE.add(lossSmooth).add(lossDir);
-
-    return lossMSE; // Default: Only MSE
+    // 1. [ОСНОВНОЕ ОГРАНИЧЕНИЕ] Сохранение гистограммы цветов
+    // Используем комбинацию мягкого и строгого сохранения
+    const lossHistSoft = preserveHistogram(yTrue, yPred).mul(50.0);
+    const lossHistStrict = strictHistogramPreservation(yTrue, yPred).mul(100.0);
+    
+    // 2. Гладкость - штраф за резкие переходы
+    const lossSmooth = smoothness(yPred).mul(5.0);
+    
+    // 3. Направление градиента (горизонтальное и вертикальное)
+    const lossDirX = directionX(yPred).mul(10.0);
+    const lossDirY = directionY(yPred).mul(5.0); // Добавили вертикальный градиент
+    
+    // 4. [АДАПТИВНЫЙ MSE] Разный для разных архитектур
+    const archType = document.querySelector('input[name="arch"]:checked').value;
+    let lossMSE;
+    
+    if (archType === "compression") {
+      // Compression нужно больше MSE для сохранения структуры
+      lossMSE = mse(yTrue, yPred).mul(1.0);
+    } else if (archType === "transformation") {
+      // Transformation может обойтись малым MSE
+      lossMSE = mse(yTrue, yPred).mul(0.2);
+    } else {
+      // Expansion нужен средний MSE
+      lossMSE = mse(yTrue, yPred).mul(0.5);
+    }
+    
+    // Суммируем все компоненты потерь
+    return lossMSE
+      .add(lossSmooth)
+      .add(lossDirX)
+      .add(lossDirY)
+      .add(lossHistSoft)
+      .add(lossHistStrict);
   });
 }
 
@@ -164,11 +230,10 @@ async function trainStep() {
   }
 
   // Train Baseline (MSE Only)
-  // We use a simple fit here or gradient tape, let's use tape for consistency
   const baselineLossVal = tf.tidy(() => {
     const { value, grads } = tf.variableGrads(() => {
       const yPred = state.baselineModel.predict(state.xInput);
-      return mse(state.xInput, yPred); // Baseline always uses MSE
+      return mse(state.xInput, yPred);
     }, state.baselineModel.getWeights());
 
     state.optimizer.applyGradients(grads);
@@ -181,14 +246,14 @@ async function trainStep() {
     studentLossVal = tf.tidy(() => {
       const { value, grads } = tf.variableGrads(() => {
         const yPred = state.studentModel.predict(state.xInput);
-        return studentLoss(state.xInput, yPred); // Uses student's custom loss
+        return studentLoss(state.xInput, yPred);
       }, state.studentModel.getWeights());
 
       state.optimizer.applyGradients(grads);
       return value.dataSync()[0];
     });
     log(
-      `Step ${state.step}: Base Loss=${baselineLossVal.toFixed(4)} | Student Loss=${studentLossVal.toFixed(4)}`,
+      `Step ${state.step}: Base Loss=${baselineLossVal.toFixed(4)} | Student Loss=${studentLossVal.toFixed(4)}`
     );
   } catch (e) {
     log(`Error in Student Training: ${e.message}`, true);
@@ -217,7 +282,7 @@ function init() {
   // 3. Render Initial Input
   tf.browser.toPixels(
     state.xInput.squeeze(),
-    document.getElementById("canvas-input"),
+    document.getElementById("canvas-input")
   );
 
   // 4. Bind Events
@@ -241,13 +306,10 @@ function init() {
 }
 
 function resetModels(archType = null) {
-  // [Fix]: When called via event listener, archType is an Event object.
-  // We must ensure it's either a string or null.
   if (typeof archType !== "string") {
     archType = null;
   }
 
-  // Safety: Stop auto-training to prevent race conditions during reset
   if (state.isAutoTraining) {
     stopAutoTrain();
   }
@@ -257,7 +319,6 @@ function resetModels(archType = null) {
     archType = checked ? checked.value : "compression";
   }
 
-  // Dispose old resources to avoid memory leaks
   if (state.baselineModel) {
     state.baselineModel.dispose();
     state.baselineModel = null;
@@ -266,22 +327,21 @@ function resetModels(archType = null) {
     state.studentModel.dispose();
     state.studentModel = null;
   }
-  // Important: Dispose optimizer because it holds references to old model variables.
   if (state.optimizer) {
     state.optimizer.dispose();
     state.optimizer = null;
   }
 
-  // Create New Models
   state.baselineModel = createBaselineModel();
+  
+  // [FIXED]: Теперь все архитектуры реализованы
   try {
     state.studentModel = createStudentModel(archType);
   } catch (e) {
     log(`Error creating model: ${e.message}`, true);
-    state.studentModel = createBaselineModel(); // Fallback to avoid crash
+    state.studentModel = createBaselineModel();
   }
 
-  // Create new optimizer (must be done AFTER models are created)
   state.optimizer = tf.train.adam(CONFIG.learningRate);
   state.step = 0;
 
@@ -290,25 +350,22 @@ function resetModels(archType = null) {
 }
 
 async function render() {
-  // Tensor memory management with tidy not possible here due to async toPixels,
-  // so we manually dispose predictions.
   const basePred = state.baselineModel.predict(state.xInput);
   const studPred = state.studentModel.predict(state.xInput);
 
   await tf.browser.toPixels(
     basePred.squeeze(),
-    document.getElementById("canvas-baseline"),
+    document.getElementById("canvas-baseline")
   );
   await tf.browser.toPixels(
     studPred.squeeze(),
-    document.getElementById("canvas-student"),
+    document.getElementById("canvas-student")
   );
 
   basePred.dispose();
   studPred.dispose();
 }
 
-// UI Helpers
 function updateLossDisplay(base, stud) {
   document.getElementById("loss-baseline").innerText =
     `Loss: ${base.toFixed(5)}`;
@@ -324,7 +381,6 @@ function log(msg, isError = false) {
   el.prepend(span);
 }
 
-// Auto Train Logic
 function toggleAutoTrain() {
   const btn = document.getElementById("btn-auto");
   if (state.isAutoTraining) {
