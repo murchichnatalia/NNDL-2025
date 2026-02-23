@@ -34,7 +34,7 @@ let state = {
 
 // Standard MSE: Mean Squared Error
 function mse(yTrue, yPred) {
-  return tf.losses.meanSquaredError(yTrue, yPred);
+  return tf.mean(tf.square(yTrue.sub(yPred)));
 }
 
 // TODO: Helper - Smoothness (Total Variation)
@@ -129,11 +129,11 @@ function studentLoss(yTrue, yPred) {
   return tf.tidy(() => {
     // 1. Basic Reconstruction (MSE) - "Be like the input"
     // Flatten
-    const flatTrue = yTrue.reshape([256]);
-    const flatPred = yPred.reshape([256]);
+    const flatTrue = yTrue.reshape([1, 256]);
+    const flatPred = yPred.reshape([1, 256]);
     // Sort values
-   const sortedTrue = tf.sort(flatTrue);
-    const sortedPred = tf.sort(flatPred);
+   const sortedTrue = tf.sort(flatTrue, 1);
+    const sortedPred = tf.sort(flatPred, 1);
     // Compare distributions
     const lossSorted = mse(sortedTrue, sortedPred);
 
@@ -358,4 +358,5 @@ function loop() {
 
 // Start
 init();
+
 
