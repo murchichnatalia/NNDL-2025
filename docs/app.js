@@ -29,42 +29,58 @@ let state = {
 };
 
 // ==========================================
-// 2. Helper Functions (Loss Components)
+// 2. Helper Functions (Loss Components) - ИСПРАВЛЕНО
 // ==========================================
 
-// Standard MSE: Mean Squared Error
-function mse(yTrue, yPred) {
-  return tf.mean(tf.square(yTrue.sub(yPred)));
-}
-
-// TODO: Helper - Smoothness (Total Variation)
+// TODO: Helper - Smoothness (Total Variation) - ИСПРАВЛЕНО
 // Penalize differences between adjacent pixels to encourage smoothness.
 function smoothness(yPred) {
-  // Difference in X direction: pixel[i, j] - pixel[i, j+1]
-  const diffX = yPred
-    .slice([0, 0, 0, 0], [-1, -1, 15, -1])
-    .sub(yPred.slice([0, 0, 1, 0], [-1, -1, 15, -1]));
-
-  // Difference in Y direction: pixel[i, j] - pixel[i+1, j]
-  const diffY = yPred
-    .slice([0, 0, 0, 0], [-1, 15, -1, -1])
-    .sub(yPred.slice([0, 1, 0, 0], [-1, 15, -1, -1]));
-
-  // Return sum of squares
-  return tf.mean(tf.square(diffX)).add(tf.mean(tf.square(diffY)));
+  return tf.tidy(() => {
+    // Получаем размеры: [batch, height, width, channels]
+    // yPred имеет форму [1, 16, 16, 1]
+    
+    // Разница по X: вычитаем сдвинутые по горизонтали пиксели
+    // Берем все пиксели кроме последнего столбца и вычитаем все пиксели кроме первого столбца
+    const diffX = yPred
+      .slice([0, 0, 0, 0], [1, 16, 15, 1])        // все строки, все столбцы кроме последнего
+      .sub(yPred.slice([0, 0, 1, 0], [1, 16, 15, 1])); // все строки, все столбцы кроме первого
+    
+    // Разница по Y: вычитаем сдвинутые по вертикали пиксели
+    // Берем все пиксели кроме последней строки и вычитаем все пиксели кроме первой строки
+    const diffY = yPred
+      .slice([0, 0, 0, 0], [1, 15, 16, 1])        // все строки кроме последней, все столбцы
+      .sub(yPred.slice([0, 1, 0, 0], [1, 15, 16, 1])); // все строки кроме первой, все столбцы
+    
+    // Вычисляем средний квадрат разницы (чем меньше, тем глаже изображение)
+    const lossX = tf.mean(tf.square(diffX));
+    const lossY = tf.mean(tf.square(diffY));
+    
+    // Возвращаем сумму потерь по X и Y направлениям
+    return lossX.add(lossY);
+  });
 }
 
-// TODO: Helper - Directionality (Gradient)
+// TODO: Helper - Directionality (Gradient) - ИСПРАВЛЕНО
 // Encourage pixels on the right to be brighter than pixels on the left.
 function directionX(yPred) {
-  // Create a weight mask that increases from left (-1) to right (+1)
-  // For 16x16, we can just use linspace
-  const width = 16;
-  const mask = tf.linspace(-1, 1, width).reshape([1, 1, width, 1]); // [1, 1, 16, 1]
-
-  // We want yPred to correlate with mask.
-  // Maximize (yPred * mask) => Minimize -(yPred * mask)
-  return tf.mean(yPred.mul(mask)).mul(-1);
+  return tf.tidy(() => {
+    const height = 16;
+    const width = 16;
+    
+    // Создаем маску от 0 до 1 (линейно возрастающую слева направо)
+    // Это создает "целевой" градиент: темный слева (0), светлый справа (1)
+    const mask = tf.linspace(0, 1, width)
+      .reshape([1, 1, width, 1])  // [1, 1, 16, 1]
+      .tile([1, height, 1, 1]);    // [1, 16, 16, 1] - повторяем для всех строк
+    
+    // Вычисляем, насколько хорошо предсказание соответствует маске градиента
+    // Чем больше корреляция с маской, тем лучше выражен градиент
+    const correlation = tf.mean(yPred.mul(mask));
+    
+    // Мы хотим максимизировать correlation, поэтому возвращаем отрицательное значение
+    // (оптимизатор минимизирует функцию потерь)
+    return correlation.mul(-1);
+  });
 }
 
 // ==========================================
@@ -87,6 +103,10 @@ function createBaselineModel() {
 // [TODO-A]: STUDENT ARCHITECTURE DESIGN
 // Modify this function to implement 'transformation' and 'expansion'.
 // ------------------------------------------------------------------
+// ------------------------------------------------------------------
+// [TODO-A]: STUDENT ARCHITECTURE DESIGN - ИСПРАВЛЕНО
+// Modify this function to implement 'transformation' and 'expansion'.
+// ------------------------------------------------------------------
 function createStudentModel(archType) {
   const model = tf.sequential();
   model.add(tf.layers.flatten({ inputShape: CONFIG.inputShapeModel }));
@@ -96,19 +116,52 @@ function createStudentModel(archType) {
     model.add(tf.layers.dense({ units: 64, activation: "relu" }));
     model.add(tf.layers.dense({ units: 256, activation: "sigmoid" }));
   } else if (archType === "transformation") {
+    // [ИСПРАВЛЕНО]: Transformation (1:1 mapping)
+    // Используем слой с размерностью, равной входной (256 нейронов)
+    // Это позволяет модели переставлять пиксели, не меняя их количество
+    model.add(tf.layers.dense({ 
+      units: 256, 
+      activation: "relu",
+      name: "transform_layer_1"
+    }));
+    
+    // Второй слой тоже 256 нейронов для сохранения размерности
+    model.add(tf.layers.dense({ 
+      units: 256, 
+      activation: "relu",
+      name: "transform_layer_2"
+    }));
+    
+    // Выходной слой с сигмоидой для нормализации в [0,1]
+    model.add(tf.layers.dense({ 
+      units: 256, 
+      activation: "sigmoid",
+      name: "transform_output"
+    }));
 
-  model.add(tf.layers.dense({ units: 256, activation: "relu" }));
-  model.add(tf.layers.dense({ units: 256, activation: "relu" }));
-  model.add(tf.layers.dense({ units: 256, activation: "sigmoid" }));
-
-} else if (archType === "expansion") {
-
-  model.add(tf.layers.dense({ units: 512, activation: "relu" }));
-  model.add(tf.layers.dense({ units: 512, activation: "relu" }));
-  model.add(tf.layers.dense({ units: 256, activation: "sigmoid" }));
-
-} else {
-    // Safety check for unknown architectures
+  } else if (archType === "expansion") {
+    // [ИСПРАВЛЕНО]: Expansion (Overcomplete)
+    // Увеличиваем размерность для более сложных трансформаций
+    model.add(tf.layers.dense({ 
+      units: 512, 
+      activation: "relu",
+      name: "expansion_layer_1"
+    }));
+    
+    // Промежуточный слой для обработки расширенного представления
+    model.add(tf.layers.dense({ 
+      units: 384, 
+      activation: "relu",
+      name: "expansion_layer_2"
+    }));
+    
+    // Возвращаемся к исходной размерности
+    model.add(tf.layers.dense({ 
+      units: 256, 
+      activation: "sigmoid",
+      name: "expansion_output"
+    }));
+  } else {
     throw new Error(`Unknown architecture type: ${archType}`);
   }
 
@@ -127,19 +180,19 @@ function createStudentModel(archType) {
 // ------------------------------------------------------------------
 function studentLoss(yTrue, yPred) {
   return tf.tidy(() => {
+    // 1. Basic Reconstruction (MSE) - минимальный вес, чтобы сохранить связь с входом
+    const lossMSE = mse(yTrue, yPred).mul(0.01); // Уменьшаем влияние до 1%
 
-    // --- Smooth gradient ---
-    const lossSmooth = smoothness(yPred).mul(0.5);
+    // 2. [ИСПРАВЛЕНО] Smoothness - "Be smooth locally"
+    // Заставляем соседние пиксели быть похожими
+    const lossSmooth = smoothness(yPred).mul(0.5); // Вес 0.5 (50% влияния)
 
-    // --- Direction left -> right ---
-    const lossDir = directionX(yPred).mul(1.0);
+    // 3. [ИСПРАВЛЕНО] Direction - "Be bright on the right"
+    // Создаем градиент слева направо
+    const lossDir = directionX(yPred).mul(1.0); // Вес 1.0 (100% влияния)
 
-    // --- Weak reconstruction (keeps values reasonable) ---
-    const lossRecon = mse(yTrue, yPred).mul(0.05);
-
-    return lossSmooth
-      .add(lossDir)
-      .add(lossRecon);
+    // Total Loss - комбинация всех компонентов
+    return lossMSE.add(lossSmooth).add(lossDir);
   });
 }
 
@@ -349,7 +402,3 @@ function loop() {
 
 // Start
 init();
-
-
-
-
