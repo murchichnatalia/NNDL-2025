@@ -29,57 +29,41 @@ let state = {
 };
 
 // ==========================================
-// 2. Helper Functions (Loss Components) - ИСПРАВЛЕНО
+// 2. Helper Functions (Loss Components)
 // ==========================================
 
+// Standard MSE: Mean Squared Error - ДОБАВЛЕНО!
+function mse(yTrue, yPred) {
+  return tf.losses.meanSquaredError(yTrue, yPred);
+}
+
 // TODO: Helper - Smoothness (Total Variation) - ИСПРАВЛЕНО
-// Penalize differences between adjacent pixels to encourage smoothness.
 function smoothness(yPred) {
   return tf.tidy(() => {
-    // Получаем размеры: [batch, height, width, channels]
-    // yPred имеет форму [1, 16, 16, 1]
-    
-    // Разница по X: вычитаем сдвинутые по горизонтали пиксели
-    // Берем все пиксели кроме последнего столбца и вычитаем все пиксели кроме первого столбца
+    // Разница по X
     const diffX = yPred
-      .slice([0, 0, 0, 0], [1, 16, 15, 1])        // все строки, все столбцы кроме последнего
-      .sub(yPred.slice([0, 0, 1, 0], [1, 16, 15, 1])); // все строки, все столбцы кроме первого
+      .slice([0, 0, 0, 0], [-1, -1, 15, -1])
+      .sub(yPred.slice([0, 0, 1, 0], [-1, -1, 15, -1]));
     
-    // Разница по Y: вычитаем сдвинутые по вертикали пиксели
-    // Берем все пиксели кроме последней строки и вычитаем все пиксели кроме первой строки
+    // Разница по Y
     const diffY = yPred
-      .slice([0, 0, 0, 0], [1, 15, 16, 1])        // все строки кроме последней, все столбцы
-      .sub(yPred.slice([0, 1, 0, 0], [1, 15, 16, 1])); // все строки кроме первой, все столбцы
+      .slice([0, 0, 0, 0], [-1, 15, -1, -1])
+      .sub(yPred.slice([0, 1, 0, 0], [-1, 15, -1, -1]));
     
-    // Вычисляем средний квадрат разницы (чем меньше, тем глаже изображение)
-    const lossX = tf.mean(tf.square(diffX));
-    const lossY = tf.mean(tf.square(diffY));
-    
-    // Возвращаем сумму потерь по X и Y направлениям
-    return lossX.add(lossY);
+    return tf.mean(tf.square(diffX)).add(tf.mean(tf.square(diffY))).mul(10); // Увеличиваем вес
   });
 }
 
 // TODO: Helper - Directionality (Gradient) - ИСПРАВЛЕНО
-// Encourage pixels on the right to be brighter than pixels on the left.
 function directionX(yPred) {
   return tf.tidy(() => {
-    const height = 16;
     const width = 16;
+    // Маска от 0 до 1 (линейно)
+    const mask = tf.linspace(0, 1, width).reshape([1, 1, width, 1]);
     
-    // Создаем маску от 0 до 1 (линейно возрастающую слева направо)
-    // Это создает "целевой" градиент: темный слева (0), светлый справа (1)
-    const mask = tf.linspace(0, 1, width)
-      .reshape([1, 1, width, 1])  // [1, 1, 16, 1]
-      .tile([1, height, 1, 1]);    // [1, 16, 16, 1] - повторяем для всех строк
-    
-    // Вычисляем, насколько хорошо предсказание соответствует маске градиента
-    // Чем больше корреляция с маской, тем лучше выражен градиент
-    const correlation = tf.mean(yPred.mul(mask));
-    
-    // Мы хотим максимизировать correlation, поэтому возвращаем отрицательное значение
-    // (оптимизатор минимизирует функцию потерь)
-    return correlation.mul(-1);
+    // Просто штрафуем за отклонение от идеального градиента
+    const target = tf.onesLike(yPred).mul(mask);
+    return tf.losses.meanSquaredError(target, yPred).mul(100); // Сильный штраф!
   });
 }
 
@@ -402,3 +386,4 @@ function loop() {
 
 // Start
 init();
+
