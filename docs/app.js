@@ -128,23 +128,18 @@ function createStudentModel(archType) {
 function studentLoss(yTrue, yPred) {
   return tf.tidy(() => {
 
-    // Distribution constraint
-    const bins = 20;
+    // --- Smooth gradient ---
+    const lossSmooth = smoothness(yPred).mul(0.5);
 
-    const histTrue = tf.histogramFixedWidth(yTrue, [0,1], bins);
-    const histPred = tf.histogramFixedWidth(yPred, [0,1], bins);
+    // --- Direction left -> right ---
+    const lossDir = directionX(yPred).mul(1.0);
 
-    const lossSorted = mse(histTrue, histPred);
+    // --- Weak reconstruction (keeps values reasonable) ---
+    const lossRecon = mse(yTrue, yPred).mul(0.05);
 
-    // Smooth image
-    const lossSmooth = smoothness(yPred).mul(0.2);
-
-    // Gradient direction
-    const lossDir = directionX(yPred).mul(0.3);
-
-    return lossSorted
-      .add(lossSmooth)
-      .add(lossDir);
+    return lossSmooth
+      .add(lossDir)
+      .add(lossRecon);
   });
 }
 
@@ -354,6 +349,7 @@ function loop() {
 
 // Start
 init();
+
 
 
 
