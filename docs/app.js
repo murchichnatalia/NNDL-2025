@@ -22,10 +22,9 @@ let state = {
   step: 0,
   isAutoTraining: false,
   autoTrainInterval: null,
-  xInput: null, // The fixed noise input
+  xInput: null, 
   baselineModel: null,
   studentModel: null,
-  // [ИСПРАВЛЕНО] Разделяем оптимизаторы для двух моделей
   baselineOptimizer: null,
   studentOptimizer: null,
 };
@@ -35,7 +34,7 @@ function mse(yTrue, yPred) {
   return tf.losses.meanSquaredError(yTrue, yPred);
 }
 
-// TODO: Helper - Smoothness (Total Variation) - ПРОСТОЙ ВАРИАНТ
+// TODO: Helper - Smoothness (Total Variation)
 function smoothness(yPred) {
   return tf.tidy(() => {
     // Просто считаем разницу между соседними пикселями
@@ -50,7 +49,7 @@ function smoothness(yPred) {
   });
 }
 
-// TODO: Helper - Directionality (Gradient) - ПРОСТОЙ ВАРИАНТ
+// TODO: Helper - Directionality (Gradient)
 function directionX(yPred) {
   return tf.tidy(() => {
     const height = 16;
@@ -83,59 +82,60 @@ function createBaselineModel() {
 }
 
 /// ------------------------------------------------------------------
-// [TODO-A]: STUDENT ARCHITECTURE DESIGN - ИСПРАВЛЕНО
-// Modify this function to implement 'transformation' and 'expansion'.
+// [TODO-A]: STUDENT ARCHITECTURE DESIGN
 // ------------------------------------------------------------------
 function createStudentModel(archType) {
   const model = tf.sequential();
   model.add(tf.layers.flatten({ inputShape: CONFIG.inputShapeModel }));
 
   if (archType === "compression") {
-    // [Implemented] Bottleneck: Compress information
     model.add(tf.layers.dense({ units: 64, activation: "relu" }));
     model.add(tf.layers.dense({ units: 256, activation: "sigmoid" }));
+    
   } else if (archType === "transformation") {
-    // [ИСПРАВЛЕНО]: Implement Transformation (1:1 mapping)
-    // Сохраняем размерность 256 (равную входной 16x16=256)
+    // Улучшенная transformation с регуляризацией
     model.add(tf.layers.dense({ 
       units: 256, 
       activation: "relu",
+      kernelRegularizer: tf.regularizers.l2({ l2: 0.005 }),
       name: "transform_hidden"
     }));
     
-    // Выходной слой с сигмоидой для нормализации в [0,1]
+    model.add(tf.layers.dropout({ rate: 0.2 }));
+    
     model.add(tf.layers.dense({ 
       units: 256, 
       activation: "sigmoid",
+      kernelRegularizer: tf.regularizers.l2({ l2: 0.005 }),
       name: "transform_output"
     }));
 
   } else if (archType === "expansion") {
-    // [ИСПРАВЛЕНО]: Implement Expansion (Overcomplete)
-    // Увеличиваем размерность для более сложных трансформаций
+    // Улучшенная expansion с регуляризацией
     model.add(tf.layers.dense({ 
       units: 512, 
       activation: "relu",
+      kernelRegularizer: tf.regularizers.l2({ l2: 0.005 }),
       name: "expand_hidden_1"
     }));
     
-    // Промежуточный слой для обработки
+    model.add(tf.layers.dropout({ rate: 0.3 }));
+    
     model.add(tf.layers.dense({ 
       units: 384, 
       activation: "relu",
+      kernelRegularizer: tf.regularizers.l2({ l2: 0.005 }),
       name: "expand_hidden_2"
     }));
     
-    // Возвращаемся к исходной размерности
+    model.add(tf.layers.dropout({ rate: 0.2 }));
+    
     model.add(tf.layers.dense({ 
       units: 256, 
       activation: "sigmoid",
+      kernelRegularizer: tf.regularizers.l2({ l2: 0.005 }),
       name: "expand_output"
     }));
-    
-  } else {
-    // Safety check for unknown architectures
-    throw new Error(`Unknown architecture type: ${archType}`);
   }
 
   model.add(tf.layers.reshape({ targetShape: [16, 16, 1] }));
@@ -147,30 +147,45 @@ function createStudentModel(archType) {
 // ==========================================
 
 // ------------------------------------------------------------------
-// [TODO-B]: STUDENT LOSS DESIGN - ИСПРАВЛЕНО
-// Modify this function to create a smooth gradient.
+// [TODO-B]: STUDENT LOSS DESIGN - УЛУЧШЕНО
 // ------------------------------------------------------------------
 function studentLoss(yTrue, yPred) {
   return tf.tidy(() => {
-    // 1. Basic Reconstruction (MSE) - минимальное влияние, чтобы сохранить цвета
-    // Уменьшаем вес, чтобы модель не копировала шум
+    // Увеличили вес гладкости для борьбы с черно-белым градиентом
     const lossMSE = mse(yTrue, yPred).mul(0.01);
-
-    // 2. [ИСПРАВЛЕНО] Smoothness - "Be smooth locally"
-    // Заставляем соседние пиксели быть похожими (убираем шум)
-    const lossSmooth = smoothness(yPred).mul(0.5); // Вес 0.5
-
-    // 3. [ИСПРАВЛЕНО] Direction - "Be bright on the right"
-    // Создаем градиент слева направо (главная цель)
-    const lossDir = directionX(yPred).mul(1.0); // Вес 1.0
-
-    // Total Loss - комбинация всех компонентов
-    return lossMSE.add(lossSmooth).add(lossDir);
+    const lossSmooth = smoothness(yPred).mul(3.0); // Увеличено с 0.5 до 3.0
+    const lossDir = directionX(yPred).mul(1.0);
+    
+    // ДОБАВЛЕНО: штраф за экстремальные значения
+    const lossBlackWhite = tf.mean(tf.square(yPred.sub(0.5))).mul(0.5);
+    
+    return lossMSE.add(lossSmooth).add(lossDir).add(lossBlackWhite);
   });
 }
 
+// Улучшенная smoothness с L2 нормой
+function smoothness(yPred) {
+  return tf.tidy(() => {
+    const diffX = yPred.slice([0, 0, 0, 0], [1, 16, 15, 1])
+      .sub(yPred.slice([0, 0, 1, 0], [1, 16, 15, 1]));
+    
+    const diffY = yPred.slice([0, 0, 0, 0], [1, 15, 16, 1])
+      .sub(yPred.slice([0, 1, 0, 0], [1, 15, 16, 1]));
+    
+    // L2 норма сильнее наказывает резкие перепады
+    return tf.mean(tf.square(diffX)).add(tf.mean(tf.square(diffY))).mul(20);
+  });
+}
+
+// Можно также уменьшить learning rate для стабильности
+const CONFIG = {
+  inputShapeModel: [16, 16, 1],
+  inputShapeData: [1, 16, 16, 1],
+  learningRate: 0.02, // Уменьшено с 0.05 для более стабильного обучения
+  autoTrainSpeed: 50,
+};
 // ==========================================
-// 5. Training Loop - ИСПРАВЛЕНО
+// 5. Training Loop 
 // ==========================================
 
 async function trainStep() {
@@ -223,7 +238,7 @@ async function trainStep() {
 }
 
 // ==========================================
-// 6. UI & Initialization logic - ИСПРАВЛЕНО
+// 6. UI & Initialization logic
 // ==========================================
 
 function init() {
@@ -285,7 +300,7 @@ function resetModels(archType = null) {
     state.studentModel.dispose();
     state.studentModel = null;
   }
-  // [ИСПРАВЛЕНО] Dispose обоих оптимизаторов
+  // Dispose обоих оптимизаторов
   if (state.baselineOptimizer) {
     state.baselineOptimizer.dispose();
     state.baselineOptimizer = null;
@@ -304,7 +319,7 @@ function resetModels(archType = null) {
     state.studentModel = createBaselineModel(); // Fallback to avoid crash
   }
 
-  // [ИСПРАВЛЕНО] Создаем два отдельных оптимизатора
+  //  Создаем два отдельных оптимизатора
   state.baselineOptimizer = tf.train.adam(CONFIG.learningRate);
   state.studentOptimizer = tf.train.adam(CONFIG.learningRate);
   state.step = 0;
@@ -379,3 +394,4 @@ function loop() {
 
 // Start
 init();
+
