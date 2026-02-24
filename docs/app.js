@@ -82,60 +82,59 @@ function createBaselineModel() {
 }
 
 /// ------------------------------------------------------------------
-// [TODO-A]: STUDENT ARCHITECTURE DESIGN
+// [TODO-A]: STUDENT ARCHITECTURE DESIGN 
+// Modify this function to implement 'transformation' and 'expansion'.
 // ------------------------------------------------------------------
 function createStudentModel(archType) {
   const model = tf.sequential();
   model.add(tf.layers.flatten({ inputShape: CONFIG.inputShapeModel }));
 
   if (archType === "compression") {
+    // [Implemented] Bottleneck: Compress information
     model.add(tf.layers.dense({ units: 64, activation: "relu" }));
     model.add(tf.layers.dense({ units: 256, activation: "sigmoid" }));
-    
   } else if (archType === "transformation") {
-    // Улучшенная transformation с регуляризацией
+    // Implement Transformation (1:1 mapping)
+    // Сохраняем размерность 256 (равную входной 16x16=256)
     model.add(tf.layers.dense({ 
       units: 256, 
       activation: "relu",
-      kernelRegularizer: tf.regularizers.l2({ l2: 0.005 }),
       name: "transform_hidden"
     }));
     
-    model.add(tf.layers.dropout({ rate: 0.2 }));
-    
+    // Выходной слой с сигмоидой для нормализации в [0,1]
     model.add(tf.layers.dense({ 
       units: 256, 
       activation: "sigmoid",
-      kernelRegularizer: tf.regularizers.l2({ l2: 0.005 }),
       name: "transform_output"
     }));
 
   } else if (archType === "expansion") {
-    // Улучшенная expansion с регуляризацией
+    // Implement Expansion (Overcomplete)
+    // Увеличиваем размерность для более сложных трансформаций
     model.add(tf.layers.dense({ 
       units: 512, 
       activation: "relu",
-      kernelRegularizer: tf.regularizers.l2({ l2: 0.005 }),
       name: "expand_hidden_1"
     }));
     
-    model.add(tf.layers.dropout({ rate: 0.3 }));
-    
+    // Промежуточный слой для обработки
     model.add(tf.layers.dense({ 
       units: 384, 
       activation: "relu",
-      kernelRegularizer: tf.regularizers.l2({ l2: 0.005 }),
       name: "expand_hidden_2"
     }));
     
-    model.add(tf.layers.dropout({ rate: 0.2 }));
-    
+    // Возвращаемся к исходной размерности
     model.add(tf.layers.dense({ 
       units: 256, 
       activation: "sigmoid",
-      kernelRegularizer: tf.regularizers.l2({ l2: 0.005 }),
       name: "expand_output"
     }));
+    
+  } else {
+    // Safety check for unknown architectures
+    throw new Error(`Unknown architecture type: ${archType}`);
   }
 
   model.add(tf.layers.reshape({ targetShape: [16, 16, 1] }));
@@ -147,43 +146,28 @@ function createStudentModel(archType) {
 // ==========================================
 
 // ------------------------------------------------------------------
-// [TODO-B]: STUDENT LOSS DESIGN - УЛУЧШЕНО
+// [TODO-B]: STUDENT LOSS DESIGN 
+// Modify this function to create a smooth gradient.
 // ------------------------------------------------------------------
 function studentLoss(yTrue, yPred) {
   return tf.tidy(() => {
-    // Увеличили вес гладкости для борьбы с черно-белым градиентом
+    // 1. Basic Reconstruction (MSE) - минимальное влияние, чтобы сохранить цвета
+    // Уменьшаем вес, чтобы модель не копировала шум
     const lossMSE = mse(yTrue, yPred).mul(0.01);
-    const lossSmooth = smoothness(yPred).mul(3.0); // Увеличено с 0.5 до 3.0
-    const lossDir = directionX(yPred).mul(1.0);
-    
-    // ДОБАВЛЕНО: штраф за экстремальные значения
-    const lossBlackWhite = tf.mean(tf.square(yPred.sub(0.5))).mul(0.5);
-    
-    return lossMSE.add(lossSmooth).add(lossDir).add(lossBlackWhite);
+
+    // 2. Smoothness - "Be smooth locally"
+    // Заставляем соседние пиксели быть похожими (убираем шум)
+    const lossSmooth = smoothness(yPred).mul(0.5); // Вес 0.5
+
+    // 3. Direction - "Be bright on the right"
+    // Создаем градиент слева направо (главная цель)
+    const lossDir = directionX(yPred).mul(1.0); // Вес 1.0
+
+    // Total Loss - комбинация всех компонентов
+    return lossMSE.add(lossSmooth).add(lossDir);
   });
 }
 
-// Улучшенная smoothness с L2 нормой
-function smoothness(yPred) {
-  return tf.tidy(() => {
-    const diffX = yPred.slice([0, 0, 0, 0], [1, 16, 15, 1])
-      .sub(yPred.slice([0, 0, 1, 0], [1, 16, 15, 1]));
-    
-    const diffY = yPred.slice([0, 0, 0, 0], [1, 15, 16, 1])
-      .sub(yPred.slice([0, 1, 0, 0], [1, 15, 16, 1]));
-    
-    // L2 норма сильнее наказывает резкие перепады
-    return tf.mean(tf.square(diffX)).add(tf.mean(tf.square(diffY))).mul(20);
-  });
-}
-
-// Можно также уменьшить learning rate для стабильности
-const CONFIG = {
-  inputShapeModel: [16, 16, 1],
-  inputShapeData: [1, 16, 16, 1],
-  learningRate: 0.02, // Уменьшено с 0.05 для более стабильного обучения
-  autoTrainSpeed: 50,
-};
 // ==========================================
 // 5. Training Loop 
 // ==========================================
@@ -394,4 +378,3 @@ function loop() {
 
 // Start
 init();
-
