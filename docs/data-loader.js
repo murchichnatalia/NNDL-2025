@@ -1,157 +1,149 @@
-/********************************************************************
- DATA LOADER
-********************************************************************/
+class MNISTDataLoader {
+    constructor() {
+        this.trainData = null;
+        this.testData = null;
+    }
 
-const IMAGE_SIZE = 28*28;
-const NUM_CLASSES = 10;
+    // Parse CSV file and convert to tensors
+    async loadCSVFile(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            
+            reader.onload = (event) => {
+                try {
+                    const content = event.target.result;
+                    const lines = content.split('\n').filter(line => line.trim() !== '');
+                    
+                    const labels = [];
+                    const pixels = [];
+                    
+                    for (const line of lines) {
+                        const values = line.split(',').map(Number);
+                        if (values.length !== 785) continue; // label + 784 pixels
+                        
+                        labels.push(values[0]);
+                        pixels.push(values.slice(1));
+                    }
+                    
+                    if (labels.length === 0) {
+                        reject(new Error('No valid data found in file'));
+                        return;
+                    }
+                    
+                    // Normalize pixels to [0, 1] and reshape to [N, 28, 28, 1]
+                    const xs = tf.tidy(() => {
+                        return tf.tensor2d(pixels)
+                            .div(255)
+                            .reshape([labels.length, 28, 28, 1]);
+                    });
+                    
+                    // One-hot encode labels
+                    const ys = tf.tidy(() => {
+                        return tf.oneHot(labels, 10);
+                    });
+                    
+                    resolve({ xs, ys, count: labels.length });
+                } catch (error) {
+                    reject(error);
+                }
+            };
+            
+            reader.onerror = () => reject(new Error('Failed to read file'));
+            reader.readAsText(file);
+        });
+    }
 
-async function parseCSV(file){
+    async loadTrainFromFiles(file) {
+        this.trainData = await this.loadCSVFile(file);
+        return this.trainData;
+    }
 
-  const text = await file.text();
-  const lines = text.split(/\r?\n/);
+    async loadTestFromFiles(file) {
+        this.testData = await this.loadCSVFile(file);
+        return this.testData;
+    }
 
-  const images=[];
-  const labels=[];
+    // Split training data into train/validation sets
+    splitTrainVal(xs, ys, valRatio = 0.1) {
+        return tf.tidy(() => {
+            const numVal = Math.floor(xs.shape[0] * valRatio);
+            const numTrain = xs.shape[0] - numVal;
+            
+            const trainXs = xs.slice([0, 0, 0, 0], [numTrain, 28, 28, 1]);
+            const trainYs = ys.slice([0, 0], [numTrain, 10]);
+            
+            const valXs = xs.slice([numTrain, 0, 0, 0], [numVal, 28, 28, 1]);
+            const valYs = ys.slice([numTrain, 0], [numVal, 10]);
+            
+            return { trainXs, trainYs, valXs, valYs };
+        });
+    }
 
-  for(const line of lines){
-
-    if(!line.trim()) continue;
-
-    const parts=line.split(",");
-
-    if(parts.length!==785) continue;
-
-    labels.push(Number(parts[0]));
-
-    const pixels = parts.slice(1).map(v=>Number(v)/255);
-
-    images.push(pixels);
-
-  }
-
-  const xs=tf.tensor2d(images).reshape([images.length,28,28,1]);
-
-  const ys=tf.oneHot(
-    tf.tensor1d(labels,"int32"),
-    NUM_CLASSES
-  );
-
-  return {xs,ys};
-
+    // Get random batch for preview
+    getRandomTestBatch(xs, ys, k = 5) {
+        return tf.tidy(() => {
+            const shuffledIndices = tf.util.createShuffledIndices(xs.shape[0]);
+            const selectedIndices = Array.from(shuffledIndices.slice(0, k));
+            
+            const batchXs = tf.gather(xs, selectedIndices);
+            const batchYs = tf.gather(ys, selectedIndices);
+            
+            return { batchXs, batchYs, indices: selectedIndices };
+        });
+    }
+   // Add Gaussian noise to images (for denoising)
+addRandomNoise(xs, noiseFactor = 0.3) {
+    return tf.tidy(() => {
+        const noise = tf.randomNormal(xs.shape);
+        const noisy = xs.add(noise.mul(noiseFactor));
+        return noisy.clipByValue(0, 1);
+    });
 }
 
-async function loadTrainFromFiles(file){
-  return await parseCSV(file);
+    // Draw 28x28 tensor to canvas
+    draw28x28ToCanvas(tensor, canvas, scale = 4) {
+        return tf.tidy(() => {
+            const ctx = canvas.getContext('2d');
+            const imageData = new ImageData(28, 28);
+            
+            // Ensure tensor is 2D and denormalize
+            const data = tensor.reshape([28, 28]).mul(255).dataSync();
+            
+            for (let i = 0; i < 784; i++) {
+                const val = data[i];
+                imageData.data[i * 4] = val;     // R
+                imageData.data[i * 4 + 1] = val; // G
+                imageData.data[i * 4 + 2] = val; // B
+                imageData.data[i * 4 + 3] = 255; // A
+            }
+            
+            // Scale up for better visibility
+            canvas.width = 28 * scale;
+            canvas.height = 28 * scale;
+            ctx.imageSmoothingEnabled = false;
+            
+            // Create temporary canvas for scaling
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = 28;
+            tempCanvas.height = 28;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.putImageData(imageData, 0, 0);
+            
+            ctx.drawImage(tempCanvas, 0, 0, 28 * scale, 28 * scale);
+        });
+    }
+
+    // Clean up stored data
+    dispose() {
+        if (this.trainData) {
+            this.trainData.xs.dispose();
+            this.trainData.ys.dispose();
+            this.trainData = null;
+        }
+        if (this.testData) {
+            this.testData.xs.dispose();
+            this.testData.ys.dispose();
+            this.testData = null;
+        }
+    }
 }
-
-async function loadTestFromFiles(file){
-  return await parseCSV(file);
-}
-
-function splitTrainVal(xs,ys,valRatio=0.1){
-
-  const num=xs.shape[0];
-  const valSize=Math.floor(num*valRatio);
-
-  const trainXs=xs.slice([0,0,0,0],[num-valSize,28,28,1]);
-  const valXs=xs.slice([num-valSize,0,0,0],[valSize,28,28,1]);
-
-  const trainYs=ys.slice([0,0],[num-valSize,10]);
-  const valYs=ys.slice([num-valSize,0],[valSize,10]);
-
-  return {trainXs,trainYs,valXs,valYs};
-
-}
-
-function getRandomTestBatch(xs,ys,k=5){
-
-  const total=xs.shape[0];
-
-  const ids=[];
-
-  for(let i=0;i<k;i++)
-    ids.push(Math.floor(Math.random()*total));
-
-  const xsBatch=tf.stack(
-    ids.map(i=>xs.slice([i,0,0,0],[1,28,28,1]).squeeze())
-  );
-
-  const ysBatch=tf.stack(
-    ids.map(i=>ys.slice([i,0],[1,10]).squeeze())
-  );
-
-  return {xsBatch,ysBatch};
-
-}
-
-function addRandomNoise(tensor,noiseFactor=0.3){
-
-  return tf.tidy(()=>{
-
-    const noise=tf.randomNormal(tensor.shape);
-    const noisy=tensor.add(noise.mul(noiseFactor));
-
-    return noisy.clipByValue(0,1);
-
-  });
-
-}
-
-function draw28x28ToCanvas(tensor,canvas,scale=4){
-
-  const data=tensor.dataSync();
-
-  canvas.width=28*scale;
-  canvas.height=28*scale;
-
-  const ctx=canvas.getContext("2d");
-
-  const img=ctx.createImageData(28,28);
-
-  for(let i=0;i<data.length;i++){
-
-    const v=data[i]*255;
-
-    img.data[i*4]=v;
-    img.data[i*4+1]=v;
-    img.data[i*4+2]=v;
-    img.data[i*4+3]=255;
-
-  }
-
-  const tmp=document.createElement("canvas");
-  tmp.width=28;
-  tmp.height=28;
-
-  tmp.getContext("2d").putImageData(img,0,0);
-
-  ctx.imageSmoothingEnabled=false;
-  ctx.drawImage(tmp,0,0,28*scale,28*scale);
-
-}
-
-function calculateMSE(original,reconstructed){
-
-  return tf.tidy(()=>{
-
-    const mse=tf.losses.meanSquaredError(original,reconstructed);
-
-    return mse.mean().dataSync()[0];
-
-  });
-
-}
-
-/********************************************************************
- GLOBAL EXPORT (FIX)
-********************************************************************/
-
-window.DataLoader={
-  loadTrainFromFiles,
-  loadTestFromFiles,
-  splitTrainVal,
-  getRandomTestBatch,
-  addRandomNoise,
-  draw28x28ToCanvas,
-  calculateMSE
-};
