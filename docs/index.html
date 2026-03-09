@@ -7,10 +7,11 @@
 <!-- TensorFlow.js -->
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
 
-<!-- tfjs-vis for charts / training visualization -->
+<!-- tfjs-vis -->
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest"></script>
 
 <style>
+
 body{
   font-family: Arial, sans-serif;
   margin:0;
@@ -25,7 +26,7 @@ header{
 
 .container{
   display:grid;
-  grid-template-columns: 350px 1fr;
+  grid-template-columns:350px 1fr;
   gap:10px;
   padding:10px;
 }
@@ -58,16 +59,6 @@ button{
   border:1px solid #ccc;
 }
 
-.metrics{
-  font-size:14px;
-  padding:5px;
-}
-
-.small{
-  font-size:12px;
-  color:#555;
-}
-
 .log-box{
   height:120px;
   overflow:auto;
@@ -77,8 +68,9 @@ button{
   font-family:monospace;
 }
 
-input[type=range]{
-  width:150px;
+.small{
+  font-size:12px;
+  color:#555;
 }
 
 </style>
@@ -92,11 +84,9 @@ input[type=range]{
 
 <div class="container">
 
-<!-- LEFT CONTROL COLUMN -->
 <div>
 
 <div class="panel">
-
 <h3>Upload Data</h3>
 
 <label>Upload Train CSV</label><br>
@@ -113,17 +103,17 @@ input[type=range]{
 
 <label>
 <input type="radio" name="mode" value="classification" checked>
-Classification Mode
+Classification
 </label><br>
 
 <label>
 <input type="radio" name="mode" value="denoising-max">
-Denoising Mode (MaxPooling)
+Denoising (MaxPooling)
 </label><br>
 
 <label>
 <input type="radio" name="mode" value="denoising-avg">
-Denoising Mode (AvgPooling)
+Denoising (AvgPooling)
 </label>
 
 </div>
@@ -135,9 +125,7 @@ Denoising Mode (AvgPooling)
 <input type="range" id="noiseSlider" min="0" max="0.5" step="0.01" value="0.3">
 <span id="noiseValue">0.30</span>
 
-<p class="small">
-Controls amount of Gaussian noise added to images during denoising tests.
-</p>
+<p class="small">Controls Gaussian noise added during denoising.</p>
 
 </div>
 
@@ -156,7 +144,7 @@ Controls amount of Gaussian noise added to images during denoising tests.
 
 <hr>
 
-<button id="saveBtn">Save Model (Download)</button>
+<button id="saveBtn">Save Model</button>
 
 <br><br>
 
@@ -185,39 +173,27 @@ Controls amount of Gaussian noise added to images during denoising tests.
 <div id="logBox" class="log-box"></div>
 </div>
 
-<div class="panel">
-<h3>Model Info</h3>
-<div id="modelInfo"></div>
 </div>
 
-</div>
-
-
-<!-- RIGHT VISUALIZATION COLUMN -->
 <div>
 
 <div class="panel">
 <h3>Metrics</h3>
-<div id="metrics" class="metrics"></div>
+<div id="metrics"></div>
 </div>
 
 <div class="panel">
-<h3>Denoising Preview (Test 5 Random)</h3>
+<h3>Denoising Preview</h3>
 <div id="previewArea"></div>
 </div>
 
-<div class="panel">
-<h3>Charts (tfjs-vis)</h3>
-<div id="charts"></div>
 </div>
 
 </div>
 
-</div>
-
-<!-- Load scripts -->
-<script src="data-loader.js"></script>
-<script src="app.js"></script>
+<!-- Important: loader BEFORE app -->
+<script defer src="data-loader.js"></script>
+<script defer src="app.js"></script>
 
 </body>
 </html>
