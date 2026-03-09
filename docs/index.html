@@ -1,314 +1,223 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>MNIST Denoising Autoencoder with TensorFlow.js</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest"></script>
-    <style>
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-            margin: 20px; 
-            background: #f5f5f5;
-        }
-        h1 { 
-            color: #333;
-            border-bottom: 3px solid #4CAF50;
-            padding-bottom: 10px;
-        }
-        .container { 
-            display: flex; 
-            gap: 20px; 
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-        .left-column, .right-column { 
-            flex: 1; 
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .preview-row { 
-            display: flex; 
-            gap: 20px; 
-            margin: 20px 0;
-            flex-wrap: wrap;
-            justify-content: center;
-        }
-        .preview-item { 
-            text-align: center; 
-            background: #f9f9f9;
-            padding: 10px;
-            border-radius: 4px;
-        }
-        canvas { 
-            border: 2px solid #ddd; 
-            image-rendering: pixelated;
-            background: white;
-            width: 84px;
-            height: 84px;
-        }
-        .correct { color: #4CAF50; font-weight: bold; }
-        .wrong { color: #f44336; font-weight: bold; }
-        button { 
-            margin: 5px; 
-            padding: 10px 15px;
-            background: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: background 0.3s;
-        }
-        button:hover { background: #45a049; }
-        button.secondary { background: #2196F3; }
-        button.secondary:hover { background: #1976D2; }
-        button.warning { background: #ff9800; }
-        button.warning:hover { background: #f57c00; }
-        .file-inputs { 
-            margin: 15px 0;
-            padding: 15px;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .status { 
-            background: #f5f5f5; 
-            padding: 15px; 
-            margin: 15px 0;
-            border-radius: 4px;
-            border-left: 4px solid #4CAF50;
-        }
-        #trainingLogs { 
-            background: #333; 
-            color: #0f0; 
-            padding: 15px; 
-            border-radius: 4px;
-            height: 200px;
-            overflow-y: auto;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-        }
-        .mode-selector {
-            margin: 15px 0;
-            padding: 15px;
-            background: #e3f2fd;
-            border-radius: 4px;
-        }
-        .mode-selector label {
-            margin-right: 20px;
-            cursor: pointer;
-        }
-        .slider-container {
-            margin: 15px 0;
-            padding: 10px;
-            background: #fff3e0;
-            border-radius: 4px;
-        }
-        .slider-container input {
-            width: 200px;
-            margin: 0 10px;
-        }
-        .metrics-panel {
-            display: flex;
-            gap: 20px;
-            margin: 15px 0;
-        }
-        .metric-box {
-            flex: 1;
-            background: #e8f5e8;
-            padding: 10px;
-            border-radius: 4px;
-            text-align: center;
-        }
-        .metric-box h4 {
-            margin: 0 0 5px 0;
-            color: #333;
-        }
-        .metric-box .value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #4CAF50;
-        }
-        .model-badge {
-            display: inline-block;
-            padding: 3px 8px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: bold;
-            margin-left: 10px;
-        }
-        .badge-class { background: #4CAF50; color: white; }
-        .badge-max { background: #2196F3; color: white; }
-        .badge-avg { background: #ff9800; color: white; }
-        .file-input-row {
-            margin: 10px 0;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .file-input-row label {
-            min-width: 150px;
-        }
-    </style>
+<meta charset="UTF-8">
+<title>TensorFlow.js MNIST – Classification & Denoising Autoencoder</title>
+
+<!-- TensorFlow.js -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+
+<!-- tfjs-vis for charts / training visualization -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest"></script>
+
+<style>
+body{
+  font-family: Arial, sans-serif;
+  margin:0;
+  background:#f5f5f5;
+}
+
+header{
+  background:#222;
+  color:white;
+  padding:10px 20px;
+}
+
+.container{
+  display:grid;
+  grid-template-columns: 350px 1fr;
+  gap:10px;
+  padding:10px;
+}
+
+.panel{
+  background:white;
+  border-radius:6px;
+  padding:10px;
+  margin-bottom:10px;
+  box-shadow:0 0 4px rgba(0,0,0,0.15);
+}
+
+button{
+  margin:3px;
+  padding:6px 10px;
+}
+
+.preview-row{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-bottom:12px;
+}
+
+.preview-block{
+  text-align:center;
+}
+
+.preview-block canvas{
+  border:1px solid #ccc;
+}
+
+.metrics{
+  font-size:14px;
+  padding:5px;
+}
+
+.small{
+  font-size:12px;
+  color:#555;
+}
+
+.log-box{
+  height:120px;
+  overflow:auto;
+  background:#111;
+  color:#0f0;
+  padding:5px;
+  font-family:monospace;
+}
+
+input[type=range]{
+  width:150px;
+}
+
+</style>
 </head>
+
 <body>
-    <h1>🧠 MNIST Denoising Autoencoder: MaxPool vs AveragePool</h1>
-    
-    <div class="file-inputs">
-        <h3>📁 Step 1: Load MNIST Data</h3>
-        <div class="file-input-row">
-            <label>📘 Training CSV (mnist_train.csv):</label>
-            <input type="file" id="trainFile" accept=".csv">
-        </div>
-        <div class="file-input-row">
-            <label>📕 Test CSV (mnist_test.csv):</label>
-            <input type="file" id="testFile" accept=".csv">
-        </div>
-        <button id="loadDataBtn" class="secondary">📊 Load Data</button>
-    </div>
 
-    <div class="container">
-        <div class="left-column">
-            <h2>🎮 Controls</h2>
-            
-            <!-- Step 2 & 3: Mode selection for pooling comparison -->
-            <div class="mode-selector">
-                <h3>🔧 Mode Selection</h3>
-                <label>
-                    <input type="radio" name="mode" value="classification" checked> 
-                    🏷️ Classification (original CNN)
-                </label>
-                <label>
-                    <input type="radio" name="mode" value="denoising-max"> 
-                    🔷 Denoising Autoencoder (MaxPool)
-                </label>
-                <label>
-                    <input type="radio" name="mode" value="denoising-avg"> 
-                    🔶 Denoising Autoencoder (AvgPool)
-                </label>
-            </div>
+<header>
+<h2>TensorFlow.js MNIST Demo – Classification & Denoising Autoencoder</h2>
+</header>
 
-            <!-- Step 1: Noise control slider -->
-            <div class="slider-container">
-                <h3>📊 Noise Level (Step 1)</h3>
-                <div style="display: flex; align-items: center;">
-                    <span style="min-width: 100px;">Noise factor:</span>
-                    <input type="range" id="noiseSlider" min="0" max="0.5" step="0.01" value="0.3">
-                    <span id="noiseValue" style="min-width: 40px; text-align: center;">0.30</span>
-                </div>
-                <p style="font-size: 12px; color: #666; margin-top: 5px;">
-                    ⚡ Adds random Gaussian noise to test images for denoising demo
-                </p>
-            </div>
+<div class="container">
 
-            <!-- Training buttons -->
-            <div style="margin: 20px 0;">
-                <h3>🚀 Training</h3>
-                <button id="trainBtn">🏋️ Train Current Mode</button>
-                <button id="comparePoolingBtn" class="warning">🔄 Compare Pooling (Step 3)</button>
-            </div>
+<!-- LEFT CONTROL COLUMN -->
+<div>
 
-            <!-- Evaluation buttons -->
-            <div style="margin: 20px 0;">
-                <h3>📏 Evaluation & Testing</h3>
-                <button id="evaluateBtn">📊 Evaluate</button>
-                <button id="testFiveBtn" class="secondary">🎲 Test 5 Random</button>
-            </div>
+<div class="panel">
 
-            <!-- Model persistence -->
-            <div style="margin: 20px 0;">
-                <h3>💾 Model Save/Load (Step 4)</h3>
-                <button id="saveModelBtn">⬇️ Save Current Model</button>
-                <button id="resetBtn">🔄 Reset All</button>
-                <button id="toggleVisorBtn">👁️ Toggle Visor</button>
-            </div>
-            
-            <!-- Load model files -->
-            <div style="margin: 20px 0; padding: 15px; background: #f0f0f0; border-radius: 4px;">
-                <h4>📂 Load Saved Model</h4>
-                <div class="file-input-row">
-                    <label>model.json:</label>
-                    <input type="file" id="modelJsonFile" accept=".json">
-                </div>
-                <div class="file-input-row">
-                    <label>weights.bin:</label>
-                    <input type="file" id="modelWeightsFile" accept=".bin">
-                </div>
-                <button id="loadModelBtn" class="secondary">📂 Load Model Files</button>
-                <p style="font-size: 12px; color: #666; margin-top: 10px;">
-                    ℹ️ Auto-detects model type: classification, MaxPool, or AvgPool
-                </p>
-            </div>
+<h3>Upload Data</h3>
 
-            <!-- Metrics display -->
-            <div class="metrics-panel">
-                <div class="metric-box">
-                    <h4>Primary Metric</h4>
-                    <div class="value" id="metricPrimary">-</div>
-                    <div style="font-size: 12px;">(accuracy for class, MSE for denoising)</div>
-                </div>
-                <div class="metric-box">
-                    <h4>Secondary Metric</h4>
-                    <div class="value" id="metricSecondary">-</div>
-                    <div style="font-size: 12px;">(AvgPool MSE when comparing)</div>
-                </div>
-            </div>
+<label>Upload Train CSV</label><br>
+<input type="file" id="trainFile"><br><br>
 
-            <!-- Data status -->
-            <div id="dataStatus" class="status">
-                <h3>📊 Data Status</h3>
-                <p>No data loaded</p>
-            </div>
+<label>Upload Test CSV</label><br>
+<input type="file" id="testFile">
 
-            <!-- Model info -->
-            <div id="modelInfo" class="status">
-                <h3>🧠 Model Info</h3>
-                <p>No model loaded</p>
-            </div>
-        </div>
+</div>
 
-        <div class="right-column">
-            <h2>📝 Training Logs</h2>
-            <div id="trainingLogs"></div>
-            
-            <h2>🖼️ Denoising Preview (Step 3)</h2>
-            <div style="font-size: 12px; color: #666; margin-bottom: 10px;">
-                Each row shows: Original | Noisy | MaxPool result | AvgPool result
-            </div>
-            <div id="previewContainer">
-                <!-- Dynamic content from app.js -->
-                <p style="color: #999; text-align: center;">Click "Test 5 Random" to see denoising comparison</p>
-            </div>
-            
-            <!-- Legend for preview -->
-            <div style="display: flex; gap: 20px; margin-top: 20px; padding: 10px; background: #f9f9f9; border-radius: 4px;">
-                <div><span style="color: #4CAF50;">●</span> Original clean image</div>
-                <div><span style="color: #f44336;">●</span> Noisy image (with slider value)</div>
-                <div><span style="color: #2196F3;">●</span> MaxPool denoised + MSE</div>
-                <div><span style="color: #ff9800;">●</span> AvgPool denoised + MSE</div>
-            </div>
-        </div>
-    </div>
+<div class="panel">
 
-    <!-- Step 4: Model type indicator -->
-    <div style="margin-top: 20px; padding: 10px; background: white; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-        <div style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
-            <span><strong>Current Mode:</strong> <span id="currentModeDisplay">Classification</span></span>
-            <span class="model-badge badge-class" id="classBadge">🏷️ Classifier</span>
-            <span class="model-badge badge-max" id="maxBadge">🔷 MaxPool</span>
-            <span class="model-badge badge-avg" id="avgBadge">🔶 AvgPool</span>
-        </div>
-        <div style="margin-top: 10px; font-size: 12px; color: #666;">
-            <strong>Step 1:</strong> Add noise ✓ | 
-            <strong>Step 2:</strong> Autoencoder training ✓ | 
-            <strong>Step 3:</strong> Pooling comparison ✓ | 
-            <strong>Step 4:</strong> Save/Load models ✓
-        </div>
-    </div>
+<h3>Mode</h3>
 
-    <script src="data-loader.js"></script>
-    <script src="app.js"></script>
+<label>
+<input type="radio" name="mode" value="classification" checked>
+Classification Mode
+</label><br>
+
+<label>
+<input type="radio" name="mode" value="denoising-max">
+Denoising Mode (MaxPooling)
+</label><br>
+
+<label>
+<input type="radio" name="mode" value="denoising-avg">
+Denoising Mode (AvgPooling)
+</label>
+
+</div>
+
+<div class="panel">
+
+<h3>Noise Level</h3>
+
+<input type="range" id="noiseSlider" min="0" max="0.5" step="0.01" value="0.3">
+<span id="noiseValue">0.30</span>
+
+<p class="small">
+Controls amount of Gaussian noise added to images during denoising tests.
+</p>
+
+</div>
+
+<div class="panel">
+
+<h3>Controls</h3>
+
+<button id="loadDataBtn">Load Data</button>
+<button id="trainBtn">Train</button>
+<button id="evaluateBtn">Evaluate</button>
+<button id="testFiveBtn">Test 5 Random</button>
+
+<hr>
+
+<button id="comparePoolingBtn">Compare Pooling</button>
+
+<hr>
+
+<button id="saveBtn">Save Model (Download)</button>
+
+<br><br>
+
+<label>Load model.json</label><br>
+<input type="file" id="modelJson"><br>
+
+<label>Load weights.bin</label><br>
+<input type="file" id="modelWeights"><br>
+
+<button id="loadModelBtn">Load Model</button>
+
+<hr>
+
+<button id="resetBtn">Reset</button>
+<button id="toggleVisorBtn">Toggle Visor</button>
+
+</div>
+
+<div class="panel">
+<h3>Data Status</h3>
+<div id="dataStatus">No data loaded.</div>
+</div>
+
+<div class="panel">
+<h3>Training Logs</h3>
+<div id="logBox" class="log-box"></div>
+</div>
+
+<div class="panel">
+<h3>Model Info</h3>
+<div id="modelInfo"></div>
+</div>
+
+</div>
+
+
+<!-- RIGHT VISUALIZATION COLUMN -->
+<div>
+
+<div class="panel">
+<h3>Metrics</h3>
+<div id="metrics" class="metrics"></div>
+</div>
+
+<div class="panel">
+<h3>Denoising Preview (Test 5 Random)</h3>
+<div id="previewArea"></div>
+</div>
+
+<div class="panel">
+<h3>Charts (tfjs-vis)</h3>
+<div id="charts"></div>
+</div>
+
+</div>
+
+</div>
+
+<!-- Load scripts -->
+<script src="data-loader.js"></script>
+<script src="app.js"></script>
+
 </body>
 </html>
