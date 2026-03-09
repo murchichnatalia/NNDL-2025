@@ -197,6 +197,18 @@ function calculateMSE(original, reconstructed){
     const v = mse.mean().dataSync()[0];
 
     return v;
+   /********************************************************************
+ EXPORT FUNCTIONS TO GLOBAL WINDOW
+ This allows app.js to access the functions defined in this file.
+********************************************************************/
+
+window.loadTrainFromFiles = loadTrainFromFiles;
+window.loadTestFromFiles = loadTestFromFiles;
+window.splitTrainVal = splitTrainVal;
+window.getRandomTestBatch = getRandomTestBatch;
+window.addRandomNoise = addRandomNoise;
+window.draw28x28ToCanvas = draw28x28ToCanvas;
+window.calculateMSE = calculateMSE;
 
   });
 
