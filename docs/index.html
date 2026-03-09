@@ -1,0 +1,145 @@
+index.html
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MNIST Denoising Autoencoder • TensorFlow.js</title>
+    <!-- CDNs as required -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest"></script>
+    <style>
+        * { box-sizing: border-box; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+        body { background: #f5f7fb; margin: 0; min-height: 100vh; display: flex; justify-content: center; padding: 20px; }
+        .container { max-width: 1400px; width: 100%; background: white; border-radius: 32px; box-shadow: 0 20px 40px rgba(0,0,0,0.08); padding: 28px; }
+        h1 { font-size: 1.8rem; font-weight: 600; margin: 0 0 8px 0; color: #1a2639; display: flex; align-items: center; gap: 8px; }
+        .sub { color: #4a5568; margin-bottom: 28px; border-left: 4px solid #6366f1; padding-left: 16px; font-size: 0.95rem; }
+        
+        /* two‑column layout */
+        .dashboard { display: grid; grid-template-columns: 1.1fr 1.9fr; gap: 24px; }
+        
+        /* left panel – controls */
+        .control-panel { background: #f8fafd; border-radius: 24px; padding: 22px; border: 1px solid #e9eef2; }
+        .section-title { font-weight: 600; font-size: 1rem; text-transform: uppercase; letter-spacing: 0.3px; color: #2d3c5e; margin: 20px 0 12px 0; border-bottom: 1px dashed #cbd5e0; padding-bottom: 5px; }
+        .section-title:first-of-type { margin-top: 0; }
+        
+        .file-row { background: white; border-radius: 14px; padding: 12px 16px; margin-bottom: 16px; box-shadow: 0 2px 6px rgba(0,0,0,0.02); border: 1px solid #e2e8f0; }
+        .file-label { font-weight: 500; font-size: 0.9rem; display: block; margin-bottom: 6px; color: #1e293b; }
+        input[type="file"] { font-size: 0.8rem; width: 100%; }
+        
+        .mode-slider-group { background: white; border-radius: 16px; padding: 16px; margin: 16px 0; border: 1px solid #e2e8f0; }
+        .radio-group { display: flex; gap: 20px; flex-wrap: wrap; margin: 8px 0 12px; }
+        .radio-group label { display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer; }
+        .slider-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .slider-row input { flex: 1; min-width: 140px; }
+        
+        .button-grid { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0 10px; }
+        button { background: white; border: 1px solid #cbd5e0; padding: 8px 16px; border-radius: 40px; font-weight: 500; font-size: 0.85rem; cursor: pointer; transition: 0.15s; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+        button.primary { background: #1e293b; color: white; border-color: #1e293b; }
+        button.success { background: #0f766e; color: white; border-color: #0f766e; }
+        button.warning { background: #b45309; color: white; border-color: #b45309; }
+        button:active { transform: scale(0.97); }
+        
+        .status-badge { background: #e9eef2; border-radius: 40px; padding: 4px 16px; font-size: 0.85rem; display: inline-block; margin: 8px 0; }
+        
+        /* right panel – previews & logs */
+        .preview-panel { background: #ffffff; border-radius: 24px; border: 1px solid #e9eef2; padding: 20px; }
+        .metrics-row { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 24px; }
+        .metric-card { background: #f8fafd; border-radius: 20px; padding: 14px 22px; border: 1px solid #e0e7ef; }
+        .metric-value { font-size: 2rem; font-weight: 600; line-height: 1; }
+        
+        /* preview strip – 4 canvases per sample */
+        .preview-strip { display: flex; flex-direction: column; gap: 24px; margin: 24px 0; }
+        .sample-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid #ecf1f7; padding-bottom: 16px; }
+        .sample-row:last-child { border-bottom: none; }
+        .canvas-block { text-align: center; min-width: 70px; }
+        .canvas-block canvas { background: #f1f5f9; border-radius: 12px; border: 2px solid white; box-shadow: 0 4px 8px rgba(0,0,0,0.05); width: 70px; height: 70px; display: block; }
+        .canvas-label { font-size: 0.7rem; font-weight: 500; margin-top: 4px; color: #2d3c5e; }
+        .mse-badge { font-size: 0.65rem; background: #d9e2ef; padding: 2px 6px; border-radius: 20px; }
+        
+        .log-area { background: #0b1622; color: #b0c4de; border-radius: 16px; padding: 16px; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; height: 110px; overflow-y: auto; margin-top: 16px; }
+        .model-info { background: #f1f5f9; border-radius: 14px; padding: 12px; font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🧼 MNIST Denoising Autoencoder · MaxPool vs AvgPool</h1>
+    <div class="sub">📁 load train/test CSV · compare pooling · save/load models · fully client-side with tfjs</div>
+
+    <div class="dashboard">
+        <!-- LEFT: controls -->
+        <div class="control-panel">
+            <div class="section-title">📂 1. Load data</div>
+            <div class="file-row">
+                <div class="file-label">📘 mnist_train.csv (no header, label+784)</div>
+                <input type="file" id="trainFileInput" accept=".csv">
+            </div>
+            <div class="file-row">
+                <div class="file-label">📕 mnist_test.csv</div>
+                <input type="file" id="testFileInput" accept=".csv">
+            </div>
+            <button id="loadDataBtn" class="primary">⟳ Load Data</button>
+            <div id="dataStatus" class="status-badge">no data</div>
+
+            <div class="section-title">🧠 2. Mode & noise</div>
+            <div class="mode-slider-group">
+                <div class="radio-group">
+                    <label><input type="radio" name="mode" value="classification" checked> 🏷️ Classification</label>
+                    <label><input type="radio" name="mode" value="denoising-max"> 🔷 Denoise (MaxPool)</label>
+                    <label><input type="radio" name="mode" value="denoising-avg"> 🔶 Denoise (AvgPool)</label>
+                </div>
+                <div class="slider-row">
+                    <span style="font-size:0.9rem;">📊 noise level</span>
+                    <input type="range" id="noiseSlider" min="0" max="0.5" step="0.01" value="0.3">
+                    <span id="noiseValue">0.30</span>
+                </div>
+            </div>
+
+            <div class="section-title">⚙️ 3. Actions</div>
+            <div class="button-grid">
+                <button id="trainBtn" class="primary">🚀 Train</button>
+                <button id="evaluateBtn">📏 Evaluate</button>
+                <button id="testFiveBtn" class="success">🎲 Test 5 random</button>
+                <button id="comparePoolingBtn" class="warning">🆚 Compare pooling</button>
+                <button id="saveBtn">💾 Save model</button>
+                <button id="loadModelBtn">📂 Load model</button>
+                <button id="resetBtn">🔄 Reset</button>
+                <button id="toggleVisorBtn">👁️ Toggle visor</button>
+            </div>
+            <div style="margin: 12px 0;">
+                <input type="file" id="modelJsonInput" accept=".json,.bin" style="display:none;" multiple>
+                <label for="modelJsonInput" class="file-label" style="background:#eef2f6; padding:8px; border-radius:30px; text-align:center; cursor:pointer;">📎 select model.json + weights.bin to load</label>
+            </div>
+
+            <div class="section-title">📋 logs</div>
+            <div id="trainingLogs" class="log-area">⏳ ready — load CSV files and press train...</div>
+            <div class="model-info" id="modelInfo">Model: none</div>
+        </div>
+
+        <!-- RIGHT: metrics + preview strip -->
+        <div class="preview-panel">
+            <div class="metrics-row">
+                <div class="metric-card">
+                    <div style="color:#4b5565;">accuracy / MSE</div>
+                    <div class="metric-value" id="metricPrimary">-</div>
+                </div>
+                <div class="metric-card">
+                    <div style="color:#4b5565;">val accuracy / MSE</div>
+                    <div class="metric-value" id="metricSecondary">-</div>
+                </div>
+            </div>
+            <div class="section-title" style="margin-top:0;">🖼️ Denoising preview (original · noisy · MaxPool · AvgPool)</div>
+            <div id="previewContainer" class="preview-strip">
+                <!-- dynamic 5 rows inserted by js -->
+                <div style="color:#8895aa; text-align:center; padding:20px;">↑ upload data and click "Test 5 random" ↑</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- deferred scripts: data-loader.js first, then app.js -->
+<script src="data-loader.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
