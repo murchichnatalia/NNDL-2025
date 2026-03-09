@@ -1,310 +1,373 @@
-/********************************************************************
- MAIN APP
-********************************************************************/
+class MNISTApp {
+    constructor() {
+        this.dataLoader = new MNISTDataLoader();
 
-let trainData=null;
-let testData=null;
+        this.modelMax = null;
+        this.modelAvg = null;
 
-let classificationModel=null;
-let modelMax=null;
-let modelAvg=null;
+        this.isTraining = false;
+        this.trainData = null;
+        this.testData = null;
+        
+        this.initializeUI();
+    }
 
-let currentMode="classification";
-let noiseLevel=0.3;
+    initializeUI() {
+        document.getElementById('loadDataBtn').addEventListener('click', () => this.onLoadData());
+        document.getElementById('trainBtn').addEventListener('click', () => this.onTrain());
+        document.getElementById('evaluateBtn').addEventListener('click', () => this.onEvaluate());
+        document.getElementById('testFiveBtn').addEventListener('click', () => this.onTestFive());
+        document.getElementById('saveModelBtn').addEventListener('click', () => this.onSaveDownload());
+        document.getElementById('loadModelBtn').addEventListener('click', () => this.onLoadFromFiles());
+        document.getElementById('resetBtn').addEventListener('click', () => this.onReset());
+        document.getElementById('toggleVisorBtn').addEventListener('click', () => this.toggleVisor());
+    }
 
-const logBox=document.getElementById("logBox");
-const previewArea=document.getElementById("previewArea");
-const metricsBox=document.getElementById("metrics");
-const dataStatus=document.getElementById("dataStatus");
+    async onLoadData() {
+        try {
+            const trainFile = document.getElementById('trainFile').files[0];
+            const testFile = document.getElementById('testFile').files[0];
+            
+            if (!trainFile || !testFile) {
+                this.showError('Please select both train and test CSV files');
+                return;
+            }
 
-function log(t){
-  logBox.innerText+=t+"\n";
-  logBox.scrollTop=logBox.scrollHeight;
+            this.showStatus('Loading training data...');
+            const trainData = await this.dataLoader.loadTrainFromFiles(trainFile);
+            
+            this.showStatus('Loading test data...');
+            const testData = await this.dataLoader.loadTestFromFiles(testFile);
+
+            this.trainData = trainData;
+            this.testData = testData;
+
+            this.updateDataStatus(trainData.count, testData.count);
+            this.showStatus('Data loaded successfully!');
+            
+        } catch (error) {
+            this.showError(`Failed to load data: ${error.message}`);
+        }
+    }
+
+    async onTrain() {
+
+        if (!this.trainData) {
+            this.showError('Please load training data first');
+            return;
+        }
+
+        if (this.isTraining) {
+            this.showError('Training already in progress');
+            return;
+        }
+
+        try {
+
+            this.isTraining = true;
+
+            const { trainXs, valXs } =
+                this.dataLoader.splitTrainVal(this.trainData.xs, this.trainData.ys, 0.1);
+
+            const noisyTrain = this.dataLoader.addRandomNoise(trainXs,0.3);
+            const noisyVal = this.dataLoader.addRandomNoise(valXs,0.3);
+
+            this.modelMax = this.createAutoencoderMax();
+            this.modelAvg = this.createAutoencoderAvg();
+
+            this.showStatus("Training MaxPool autoencoder...");
+
+            await this.modelMax.fit(noisyTrain, trainXs, {
+                epochs:10,
+                batchSize:128,
+                validationData:[noisyVal,valXs],
+                shuffle:true
+            });
+
+            this.showStatus("Training AvgPool autoencoder...");
+
+            await this.modelAvg.fit(noisyTrain, trainXs, {
+                epochs:10,
+                batchSize:128,
+                validationData:[noisyVal,valXs],
+                shuffle:true
+            });
+
+            noisyTrain.dispose();
+            noisyVal.dispose();
+            trainXs.dispose();
+            valXs.dispose();
+
+            this.showStatus("Training finished");
+
+        } catch(error) {
+
+            this.showError(`Training failed: ${error.message}`);
+
+        } finally {
+
+            this.isTraining=false;
+
+        }
+    }
+
+    async onEvaluate() {
+        this.showStatus("Evaluation not used for autoencoder");
+    }
+
+    async onTestFive() {
+
+        if (!this.modelMax || !this.modelAvg) {
+            this.showError("Train model first");
+            return;
+        }
+
+        const { batchXs } =
+            this.dataLoader.getRandomTestBatch(this.testData.xs,this.testData.ys,5);
+
+        const noisy = this.dataLoader.addRandomNoise(batchXs,0.3);
+
+        const maxPred = this.modelMax.predict(noisy);
+        const avgPred = this.modelAvg.predict(noisy);
+
+        const orig = batchXs.arraySync();
+        const noisyArr = noisy.arraySync();
+        const maxArr = maxPred.arraySync();
+        const avgArr = avgPred.arraySync();
+
+        const container = document.getElementById("previewContainer");
+        container.innerHTML="";
+
+        for(let i=0;i<5;i++){
+
+            const row=document.createElement("div");
+            row.className="preview-row";
+
+            const imgs=[orig[i],noisyArr[i],maxArr[i],avgArr[i]];
+            const labels=["Original","Noisy","MaxPool","AvgPool"];
+
+            for(let j=0;j<4;j++){
+
+                const item=document.createElement("div");
+                item.className="preview-item";
+
+                const canvas=document.createElement("canvas");
+                const label=document.createElement("div");
+                label.textContent=labels[j];
+
+                this.dataLoader.draw28x28ToCanvas(tf.tensor(imgs[j]),canvas,4);
+
+                item.appendChild(canvas);
+                item.appendChild(label);
+
+                row.appendChild(item);
+            }
+
+            container.appendChild(row);
+        }
+
+        batchXs.dispose();
+        noisy.dispose();
+        maxPred.dispose();
+        avgPred.dispose();
+    }
+
+    async onSaveDownload() {
+
+        if (!this.modelMax || !this.modelAvg) {
+            this.showError("No trained models");
+            return;
+        }
+
+        await this.modelMax.save('downloads://mnist-denoiser-max');
+        await this.modelAvg.save('downloads://mnist-denoiser-avg');
+
+        this.showStatus("Models saved");
+    }
+
+    async onLoadFromFiles() {
+
+        const jsonFile=document.getElementById('modelJsonFile').files[0];
+        const weightsFile=document.getElementById('modelWeightsFile').files[0];
+
+        if(!jsonFile||!weightsFile){
+            this.showError("Select model files");
+            return;
+        }
+
+        this.modelMax=await tf.loadLayersModel(
+            tf.io.browserFiles([jsonFile,weightsFile])
+        );
+
+        this.showStatus("Model loaded");
+    }
+
+    onReset() {
+
+        if(this.modelMax) this.modelMax.dispose();
+        if(this.modelAvg) this.modelAvg.dispose();
+
+        this.modelMax=null;
+        this.modelAvg=null;
+
+        this.dataLoader.dispose();
+        this.trainData=null;
+        this.testData=null;
+
+        this.updateDataStatus(0,0);
+        this.clearPreview();
+
+        this.showStatus("Reset completed");
+    }
+
+    toggleVisor(){
+        tfvis.visor().toggle();
+    }
+
+    createAutoencoderMax(){
+
+        const model=tf.sequential();
+
+        model.add(tf.layers.conv2d({
+            filters:32,
+            kernelSize:3,
+            activation:'relu',
+            padding:'same',
+            inputShape:[28,28,1]
+        }));
+
+        model.add(tf.layers.maxPooling2d({poolSize:2}));
+
+        model.add(tf.layers.conv2d({
+            filters:64,
+            kernelSize:3,
+            activation:'relu',
+            padding:'same'
+        }));
+
+        model.add(tf.layers.maxPooling2d({poolSize:2}));
+
+        model.add(tf.layers.conv2d({
+            filters:64,
+            kernelSize:3,
+            activation:'relu',
+            padding:'same'
+        }));
+
+        model.add(tf.layers.upSampling2d({size:2}));
+
+        model.add(tf.layers.conv2d({
+            filters:32,
+            kernelSize:3,
+            activation:'relu',
+            padding:'same'
+        }));
+
+        model.add(tf.layers.upSampling2d({size:2}));
+
+        model.add(tf.layers.conv2d({
+            filters:1,
+            kernelSize:3,
+            activation:'sigmoid',
+            padding:'same'
+        }));
+
+        model.compile({
+            optimizer:'adam',
+            loss:'meanSquaredError'
+        });
+
+        return model;
+    }
+
+    createAutoencoderAvg(){
+
+        const model=tf.sequential();
+
+        model.add(tf.layers.conv2d({
+            filters:32,
+            kernelSize:3,
+            activation:'relu',
+            padding:'same',
+            inputShape:[28,28,1]
+        }));
+
+        model.add(tf.layers.averagePooling2d({poolSize:2}));
+
+        model.add(tf.layers.conv2d({
+            filters:64,
+            kernelSize:3,
+            activation:'relu',
+            padding:'same'
+        }));
+
+        model.add(tf.layers.averagePooling2d({poolSize:2}));
+
+        model.add(tf.layers.conv2d({
+            filters:64,
+            kernelSize:3,
+            activation:'relu',
+            padding:'same'
+        }));
+
+        model.add(tf.layers.upSampling2d({size:2}));
+
+        model.add(tf.layers.conv2d({
+            filters:32,
+            kernelSize:3,
+            activation:'relu',
+            padding:'same'
+        }));
+
+        model.add(tf.layers.upSampling2d({size:2}));
+
+        model.add(tf.layers.conv2d({
+            filters:1,
+            kernelSize:3,
+            activation:'sigmoid',
+            padding:'same'
+        }));
+
+        model.compile({
+            optimizer:'adam',
+            loss:'meanSquaredError'
+        });
+
+        return model;
+    }
+
+    clearPreview(){
+        document.getElementById('previewContainer').innerHTML='';
+    }
+
+    updateDataStatus(trainCount,testCount){
+
+        const statusEl=document.getElementById('dataStatus');
+
+        statusEl.innerHTML=`
+        <h3>Data Status</h3>
+        <p>Train samples: ${trainCount}</p>
+        <p>Test samples: ${testCount}</p>
+        `;
+    }
+
+    showStatus(message){
+
+        const logs=document.getElementById('trainingLogs');
+
+        const entry=document.createElement('div');
+        entry.textContent=`[${new Date().toLocaleTimeString()}] ${message}`;
+
+        logs.appendChild(entry);
+        logs.scrollTop=logs.scrollHeight;
+    }
+
+    showError(message){
+        this.showStatus(`ERROR: ${message}`);
+        console.error(message);
+    }
 }
 
-/********************************************************************
- UI
-********************************************************************/
-
-document.getElementById("noiseSlider").oninput=e=>{
-  noiseLevel=Number(e.target.value);
-  document.getElementById("noiseValue").innerText=noiseLevel.toFixed(2);
-};
-
-document.querySelectorAll("input[name=mode]").forEach(r=>{
-  r.onchange=e=>currentMode=e.target.value;
+document.addEventListener('DOMContentLoaded',()=>{
+    new MNISTApp();
 });
-
-/********************************************************************
- LOAD DATA
-********************************************************************/
-
-document.getElementById("loadDataBtn").onclick=async()=>{
-
-  try{
-
-    const trainFile=document.getElementById("trainFile").files[0];
-    const testFile=document.getElementById("testFile").files[0];
-
-    log("Loading train data...");
-
-    trainData=await DataLoader.loadTrainFromFiles(trainFile);
-
-    log("Loading test data...");
-
-    testData=await DataLoader.loadTestFromFiles(testFile);
-
-    dataStatus.innerText=
-      "Train: "+trainData.xs.shape[0]+" images | "+
-      "Test: "+testData.xs.shape[0]+" images";
-
-  }catch(e){
-    alert("Error loading data: "+e);
-  }
-
-};
-
-/********************************************************************
- MODELS
-********************************************************************/
-
-function buildClassifier(){
-
-  const m=tf.sequential();
-
-  m.add(tf.layers.conv2d({
-    filters:32,kernelSize:3,activation:'relu',padding:'same',inputShape:[28,28,1]
-  }));
-
-  m.add(tf.layers.conv2d({
-    filters:64,kernelSize:3,activation:'relu',padding:'same'
-  }));
-
-  m.add(tf.layers.maxPooling2d({poolSize:2}));
-
-  m.add(tf.layers.flatten());
-
-  m.add(tf.layers.dense({units:128,activation:'relu'}));
-
-  m.add(tf.layers.dense({units:10,activation:'softmax'}));
-
-  m.compile({
-    optimizer:tf.train.adam(0.001),
-    loss:'categoricalCrossentropy',
-    metrics:['accuracy']
-  });
-
-  return m;
-}
-
-function buildAutoencoder(type){
-
-  const m=tf.sequential();
-
-  m.add(tf.layers.conv2d({
-    filters:32,kernelSize:3,activation:'relu',padding:'same',inputShape:[28,28,1]
-  }));
-
-  if(type==="max")
-    m.add(tf.layers.maxPooling2d({poolSize:2}));
-  else
-    m.add(tf.layers.averagePooling2d({poolSize:2}));
-
-  m.add(tf.layers.conv2d({
-    filters:64,kernelSize:3,activation:'relu',padding:'same'
-  }));
-
-  if(type==="max")
-    m.add(tf.layers.maxPooling2d({poolSize:2}));
-  else
-    m.add(tf.layers.averagePooling2d({poolSize:2}));
-
-  m.add(tf.layers.conv2d({filters:64,kernelSize:3,activation:'relu',padding:'same'}));
-  m.add(tf.layers.upSampling2d({size:2}));
-
-  m.add(tf.layers.conv2d({filters:32,kernelSize:3,activation:'relu',padding:'same'}));
-  m.add(tf.layers.upSampling2d({size:2}));
-
-  m.add(tf.layers.conv2d({filters:1,kernelSize:3,activation:'sigmoid',padding:'same'}));
-
-  m.compile({
-    optimizer:tf.train.adam(0.001),
-    loss:'meanSquaredError'
-  });
-
-  return m;
-}
-
-/********************************************************************
- TRAIN
-********************************************************************/
-
-document.getElementById("trainBtn").onclick=async()=>{
-
-  if(!trainData) return alert("Load data first");
-
-  if(currentMode==="classification"){
-
-    classificationModel=buildClassifier();
-
-    const {trainXs,trainYs,valXs,valYs}=
-      DataLoader.splitTrainVal(trainData.xs,trainData.ys);
-
-    await classificationModel.fit(trainXs,trainYs,{
-      epochs:5,
-      batchSize:128,
-      validationData:[valXs,valYs]
-    });
-
-    log("Classifier trained");
-  }
-
-  if(currentMode==="denoising-max"){
-
-    modelMax=buildAutoencoder("max");
-
-    const noisy=DataLoader.addRandomNoise(trainData.xs,noiseLevel);
-
-    await modelMax.fit(noisy,trainData.xs,{
-      epochs:10,
-      batchSize:64
-    });
-
-    log("MaxPool autoencoder trained");
-  }
-
-  if(currentMode==="denoising-avg"){
-
-    modelAvg=buildAutoencoder("avg");
-
-    const noisy=DataLoader.addRandomNoise(trainData.xs,noiseLevel);
-
-    await modelAvg.fit(noisy,trainData.xs,{
-      epochs:10,
-      batchSize:64
-    });
-
-    log("AvgPool autoencoder trained");
-  }
-
-};
-
-/********************************************************************
- TEST RANDOM
-********************************************************************/
-
-document.getElementById("testFiveBtn").onclick=()=>{
-
-  if(!testData) return;
-
-  previewArea.innerHTML="";
-
-  const {xsBatch}=DataLoader.getRandomTestBatch(testData.xs,testData.ys,5);
-
-  const noisy=DataLoader.addRandomNoise(xsBatch,noiseLevel);
-
-  for(let i=0;i<5;i++){
-
-    const row=document.createElement("div");
-    row.className="preview-row";
-
-    const orig=xsBatch.slice([i,0,0,0],[1,28,28,1]).squeeze();
-    const n=noisy.slice([i,0,0,0],[1,28,28,1]).squeeze();
-
-    row.appendChild(drawBlock("Original",orig));
-    row.appendChild(drawBlock("Noisy",n));
-
-    if(modelMax){
-
-      const pred=modelMax.predict(n.expandDims(0)).squeeze();
-      const mse=DataLoader.calculateMSE(orig,pred);
-
-      row.appendChild(drawBlock("Max "+mse.toFixed(4),pred));
-    }
-
-    if(modelAvg){
-
-      const pred=modelAvg.predict(n.expandDims(0)).squeeze();
-      const mse=DataLoader.calculateMSE(orig,pred);
-
-      row.appendChild(drawBlock("Avg "+mse.toFixed(4),pred));
-    }
-
-    previewArea.appendChild(row);
-  }
-
-};
-
-function drawBlock(label,t){
-
-  const div=document.createElement("div");
-  div.className="preview-block";
-
-  const canvas=document.createElement("canvas");
-
-  DataLoader.draw28x28ToCanvas(t,canvas,4);
-
-  const txt=document.createElement("div");
-  txt.innerText=label;
-
-  div.appendChild(canvas);
-  div.appendChild(txt);
-
-  return div;
-}
-
-/********************************************************************
- SAVE MODEL
-********************************************************************/
-
-document.getElementById("saveBtn").onclick=async()=>{
-
-  let model=null;
-  let name="";
-
-  if(currentMode==="classification"){
-    model=classificationModel;
-    name="mnist-classifier";
-  }
-
-  if(currentMode==="denoising-max"){
-    model=modelMax;
-    name="mnist-denoiser-max";
-  }
-
-  if(currentMode==="denoising-avg"){
-    model=modelAvg;
-    name="mnist-denoiser-avg";
-  }
-
-  if(!model) return alert("No model");
-
-  await model.save("downloads://"+name);
-};
-
-/********************************************************************
- RESET
-********************************************************************/
-
-document.getElementById("resetBtn").onclick=()=>{
-
-  tf.disposeVariables();
-
-  classificationModel=null;
-  modelMax=null;
-  modelAvg=null;
-
-  previewArea.innerHTML="";
-  metricsBox.innerHTML="";
-  logBox.innerHTML="";
-
-  log("Reset done");
-};
-
-/********************************************************************
- VISOR
-********************************************************************/
-
-document.getElementById("toggleVisorBtn").onclick=()=>{
-  tfvis.visor().toggle();
-};
